@@ -1,0 +1,52 @@
+type: object
+description: Check-in model for tracking OKR progress updates
+properties:
+  _id:
+    type: string
+    description: Unique identifier for the check-in
+    example: "507f1f77bcf86cd799439015"
+  okr:
+    type: string
+    description: ID of the OKR this check-in is for
+    example: "507f1f77bcf86cd799439014"
+  user:
+    type: string
+    description: ID of the user who made the check-in
+    example: "507f1f77bcf86cd799439011"
+  comment:
+    type: string
+    description: Comment about the progress update
+    example: "Made significant progress on performance optimization"
+  updates:
+    type: array
+    description: List of progress updates for key results
+    items:
+      type: object
+      properties:
+        index:
+          type: number
+          description: Index of the key result being updated
+          minimum: 0
+          example: 0
+        previousProgress:
+          type: number
+          description: Previous progress value
+          minimum: 0
+          maximum: 100
+          example: 50
+        newProgress:
+          type: number
+          description: New progress value
+          minimum: 0
+          maximum: 100
+          example: 75
+  createdAt:
+    type: string
+    format: date-time
+    description: Timestamp when the check-in was created
+    example: "2024-03-20T10:00:00Z"
+  updatedAt:
+    type: string
+    format: date-time
+    description: Timestamp when the check-in was last updated
+    example: "2024-03-20T10:00:00Z" 

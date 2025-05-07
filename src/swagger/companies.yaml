@@ -1,0 +1,511 @@
+openapi: 3.0.0
+info:
+  title: OKR Express API - Companies
+  version: 1.0.0
+  description: Company management endpoints for OKR Express API
+
+paths:
+  /api/companies:
+    post:
+      summary: Create a new company
+      tags: [Companies]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Company created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  company:
+                    $ref: '../common.yaml#/components/schemas/Company'
+        '401':
+          description: Unauthorized
+
+    get:
+      summary: Get all companies
+      description: Returns a list of companies where the user is either a creator or a member
+      tags: [Companies]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of companies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  createdCompanies:
+                    type: array
+                    description: Companies created by the user
+                    items:
+                      type: object
+                      properties:
+                        _id:
+                          type: string
+                          description: Unique identifier for the company
+                          example: "6817a4ea078614bc781acb49"
+                        name:
+                          type: string
+                          description: Name of the company
+                          example: "dstu"
+                        createdBy:
+                          type: string
+                          description: ID of the user who created the company
+                          example: "6817a01decbf895dd37d8409"
+                        roles:
+                          type: array
+                          description: List of roles defined in the company
+                          items:
+                            type: object
+                            properties:
+                              _id:
+                                type: string
+                                description: Unique identifier for the role
+                                example: "6817a592078614bc781acb4f"
+                              name:
+                                type: string
+                                description: Name of the role
+                                example: "student"
+                              description:
+                                type: string
+                                description: Description of the role
+                                example: "string"
+                        createdAt:
+                          type: string
+                          format: date-time
+                          description: Timestamp when the company was created
+                          example: "2025-05-04T17:33:30.440Z"
+                        updatedAt:
+                          type: string
+                          format: date-time
+                          description: Timestamp when the company was last updated
+                          example: "2025-05-04T17:51:58.165Z"
+                        __v:
+                          type: number
+                          description: Version number of the document
+                          example: 2
+                        userRole:
+                          type: string
+                          description: Role of the current user in this company
+                          example: "creator"
+                  memberCompanies:
+                    type: array
+                    description: Companies where the user is a member
+                    items:
+                      $ref: '../common.yaml#/components/schemas/Company'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Unauthorized"
+
+  /api/companies/{companyId}:
+    get:
+      summary: Get detailed company information including roles and users
+      tags: [Companies]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detailed company information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  createdBy:
+                    type: string
+                  roles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        description:
+                          type: string
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        email:
+                          type: string
+                        roles:
+                          type: array
+                          items:
+                            type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+                  updatedAt:
+                    type: string
+                    format: date-time
+        '401':
+          description: Unauthorized
+        '404':
+          description: Company not found
+
+  /api/companies/{companyId}/roles:
+    post:
+      summary: Add a new role to company
+      tags: [Companies]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Role added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  company:
+                    $ref: '../common.yaml#/components/schemas/Company'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Only company creator can add roles
+        '404':
+          description: Company not found
+        '400':
+          description: Role with this name already exists
+
+    get:
+      summary: Get all roles in company
+      tags: [Companies]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of roles in company
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  roles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        description:
+                          type: string
+        '401':
+          description: Unauthorized
+        '404':
+          description: Company not found
+
+  /api/companies/{companyId}/users:
+    post:
+      summary: Add user to company
+      tags: [Companies]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - userId
+              properties:
+                userId:
+                  type: string
+      responses:
+        '201':
+          description: User added to company successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: '../common.yaml#/components/schemas/User'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Only company creator can add users
+        '404':
+          description: Company not found or User not found
+        '400':
+          description: User is already in this company
+
+    get:
+      summary: Get all users in company
+      tags: [Companies]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of users in company
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        _id:
+                          type: string
+                        name:
+                          type: string
+                        email:
+                          type: string
+                        roles:
+                          type: array
+                          items:
+                            type: string
+        '401':
+          description: Unauthorized
+        '404':
+          description: Company not found
+
+  /api/companies/{companyId}/users/{userId}/roles:
+    post:
+      summary: Assign role to user in company
+      tags: [Companies]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - role
+              properties:
+                role:
+                  type: string
+      responses:
+        '201':
+          description: Role assigned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: '../common.yaml#/components/schemas/User'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Only company creator can assign roles
+        '404':
+          description: Company not found or User not found
+        '400':
+          description: Invalid role for this company or User already has this role
+
+  /api/companies/{companyId}/users/{userId}/roles/{role}:
+    delete:
+      summary: Remove role from user in company
+      tags: [Companies]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: role
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Role removed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: '../common.yaml#/components/schemas/User'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Only company creator can remove roles
+        '404':
+          description: Company not found or User not found
+        '400':
+          description: User doesn't have this role in the company
+
+  /api/companies/{companyId}/roles/{role}:
+    delete:
+      summary: Remove role from company and revoke it from all users
+      tags: [Companies]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: role
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Role removed successfully and revoked from all users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  affectedUsers:
+                    type: number
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Only company creator can remove roles
+        '404':
+          description: Company not found or Role not found in company
+
+  /api/companies/{companyId}/users/{userId}:
+    delete:
+      summary: Remove user from company
+      tags: [Companies]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User removed from company successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: '../common.yaml#/components/schemas/User'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Only company creator can remove users
+        '404':
+          description: Company not found or User not found
+        '400':
+          description: User is not in this company 

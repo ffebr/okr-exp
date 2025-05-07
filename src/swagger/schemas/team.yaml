@@ -1,0 +1,35 @@
+type: object
+description: Team model representing a group of users within a company
+properties:
+  _id:
+    type: string
+    description: Unique identifier for the team
+    example: "507f1f77bcf86cd799439013"
+  name:
+    type: string
+    description: Name of the team
+    example: "Engineering Team"
+  companyId:
+    type: string
+    description: ID of the company this team belongs to
+    example: "507f1f77bcf86cd799439012"
+  description:
+    type: string
+    description: Description of the team
+    example: "Team responsible for product development"
+  members:
+    type: array
+    description: List of team members
+    items:
+      type: object
+      properties:
+        userId:
+          type: string
+          description: ID of the user
+          example: "507f1f77bcf86cd799439011"
+  requiredRoles:
+    type: array
+    description: List of roles required to be in this team
+    items:
+      type: string
+      example: "developer" 

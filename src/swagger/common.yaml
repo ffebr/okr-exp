@@ -1,0 +1,28 @@
+openapi: 3.0.0
+info:
+  title: OKR Express API
+  version: 1.0.0
+  description: API for managing OKRs, companies, and teams
+
+servers:
+  - url: http://localhost:3000
+    description: Development server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      $ref: './schemas/user.yaml'
+    Team:
+      $ref: './schemas/team.yaml'
+    Company:
+      $ref: './schemas/company.yaml'
+    OKR:
+      $ref: './schemas/okr.yaml'
+    CheckIn:
+      $ref: './schemas/checkin.yaml' 

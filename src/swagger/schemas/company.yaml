@@ -1,0 +1,39 @@
+type: object
+description: Company model representing an organization
+properties:
+  _id:
+    type: string
+    description: Unique identifier for the company
+    example: "507f1f77bcf86cd799439012"
+  name:
+    type: string
+    description: Name of the company
+    example: "Acme Corp"
+  createdBy:
+    type: string
+    description: ID of the user who created the company
+    example: "507f1f77bcf86cd799439011"
+  roles:
+    type: array
+    description: List of roles defined in the company
+    items:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name of the role
+          example: "admin"
+        description:
+          type: string
+          description: Description of the role
+          example: "Administrator with full access"
+  createdAt:
+    type: string
+    format: date-time
+    description: Timestamp when the company was created
+    example: "2024-03-20T10:00:00Z"
+  updatedAt:
+    type: string
+    format: date-time
+    description: Timestamp when the company was last updated
+    example: "2024-03-20T10:00:00Z" 

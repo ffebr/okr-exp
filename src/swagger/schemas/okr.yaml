@@ -1,0 +1,64 @@
+type: object
+description: OKR (Objectives and Key Results) model
+properties:
+  _id:
+    type: string
+    description: Unique identifier for the OKR
+    example: "507f1f77bcf86cd799439014"
+  team:
+    type: string
+    description: ID of the team this OKR belongs to
+    example: "507f1f77bcf86cd799439013"
+  createdBy:
+    type: string
+    description: ID of the user who created the OKR
+    example: "507f1f77bcf86cd799439011"
+  objective:
+    type: string
+    description: The main objective
+    example: "Improve product performance"
+  description:
+    type: string
+    description: Detailed description of the OKR
+    example: "Focus on optimizing core features and reducing load times"
+  keyResults:
+    type: array
+    description: List of key results that measure the objective
+    items:
+      type: object
+      properties:
+        title:
+          type: string
+          description: Title of the key result
+          example: "Reduce page load time"
+        description:
+          type: string
+          description: Description of the key result
+          example: "Decrease average page load time to under 2 seconds"
+        progress:
+          type: number
+          description: Current progress (0-100)
+          minimum: 0
+          maximum: 100
+          example: 75
+  progress:
+    type: number
+    description: Overall progress of the OKR (0-100)
+    minimum: 0
+    maximum: 100
+    example: 60
+  status:
+    type: string
+    description: Current status of the OKR
+    enum: [active, completed, cancelled]
+    example: "active"
+  createdAt:
+    type: string
+    format: date-time
+    description: Timestamp when the OKR was created
+    example: "2024-03-20T10:00:00Z"
+  updatedAt:
+    type: string
+    format: date-time
+    description: Timestamp when the OKR was last updated
+    example: "2024-03-20T10:00:00Z" 

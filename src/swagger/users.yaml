@@ -1,0 +1,30 @@
+openapi: 3.0.0
+info:
+  title: OKR Express API - Users
+  version: 1.0.0
+  description: User management endpoints for OKR Express API
+
+paths:
+  /api/users/{userId}:
+    get:
+      summary: Get user details
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User details including companies and roles
+          content:
+            application/json:
+              schema:
+                $ref: '../common.yaml#/components/schemas/User'
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not found 

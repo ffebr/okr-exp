@@ -1,0 +1,51 @@
+type: object
+description: User model representing a system user
+properties:
+  _id:
+    type: string
+    description: Unique identifier for the user
+    example: "507f1f77bcf86cd799439011"
+  name:
+    type: string
+    description: Full name of the user
+    example: "John Doe"
+  email:
+    type: string
+    format: email
+    description: Email address of the user
+    example: "john.doe@example.com"
+  companies:
+    type: array
+    description: List of companies the user belongs to
+    items:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Company ID
+          example: "507f1f77bcf86cd799439012"
+        name:
+          type: string
+          description: Company name
+          example: "Acme Corp"
+  roles:
+    type: array
+    description: List of roles the user has in different companies
+    items:
+      type: object
+      properties:
+        company:
+          type: object
+          properties:
+            _id:
+              type: string
+              description: Company ID
+              example: "507f1f77bcf86cd799439012"
+            name:
+              type: string
+              description: Company name
+              example: "Acme Corp"
+        role:
+          type: string
+          description: Role name in the company
+          example: "admin" 
