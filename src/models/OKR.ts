@@ -17,6 +17,9 @@ const OKRSchema = new Schema({
   objective: { type: String, required: true },
   description: String,
 
+  parentOKR:       { type: Types.ObjectId, ref: 'CorporateOKR' },
+  parentKRIndex:   { type: Number },
+
   keyResults: {
     type: [KeyResultSchema],
   },
