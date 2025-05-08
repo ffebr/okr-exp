@@ -182,4 +182,24 @@ export const hasOKRAccess = async (req: AuthRequest, res: Response, next: NextFu
   } catch (error) {
     res.status(500).json({ message: 'Internal server error' });
   }
+};
+
+export const isTeamCreator = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const teamId = req.params.teamId;
+    const userId = req.user.id;
+
+    const team = await Team.findById(teamId);
+    if (!team) {
+      return res.status(404).json({ message: 'Team not found' });
+    }
+
+    if (team.createdBy !== userId) {
+      return res.status(403).json({ message: 'Only team creator can perform this action' });
+    }
+
+    next();
+  } catch (error) {
+    res.status(500).json({ message: 'Internal server error' });
+  }
 }; 

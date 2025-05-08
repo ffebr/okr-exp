@@ -121,6 +121,65 @@ class OKRService {
       throw new Error('Unknown error occurred while adding key result');
     }
   }
+
+  static async updateOKRStatus(okrId: string, status: string) {
+    console.log('updateOKRStatus', okrId, status);
+    try {
+      if (!okrId) {
+        throw new Error('OKR ID is required');
+      }
+
+      if (!['draft', 'active', 'done'].includes(status)) {
+        throw new Error('Invalid status value');
+      }
+
+      console.log('Looking for OKR with ID:', okrId);
+      const okr = await OKR.findById(new Types.ObjectId(okrId));
+      console.log('Found OKR:', okr);
+      if (!okr) {
+        throw new Error('OKR not found');
+      }
+
+      // Check if user has permission to update this OKR
+      const user = await User.findById(okr.createdBy);
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      // Update status
+      okr.status = status as "draft" | "active" | "done";
+      await okr.save();
+
+      return okr;
+    } catch (error) {
+      console.error('Error in updateOKRStatus:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Unknown error occurred while updating OKR status');
+    }
+  }
+
+  static async getOKRById(okrId: string) {
+    try {
+      if (!okrId) {
+        throw new Error('OKR ID is required');
+      }
+
+      const okr = await OKR.findById(new Types.ObjectId(okrId));
+      if (!okr) {
+        throw new Error('OKR not found');
+      }
+
+      return okr;
+    } catch (error) {
+      console.error('Error in getOKRById:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Unknown error occurred while getting OKR');
+    }
+  }
 }
 
 export default OKRService; 

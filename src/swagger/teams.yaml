@@ -1,8 +1,8 @@
 openapi: 3.0.0
 info:
-  title: OKR Express API - Teams
+  title: Teams API
   version: 1.0.0
-  description: Team management endpoints for OKR Express API
+  description: API for managing teams and their members
 
 paths:
   /api/teams:
@@ -25,43 +25,46 @@ paths:
                   type: string
                 companyId:
                   type: string
-                description:
-                  type: string
       responses:
         '201':
           description: Team created successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                  team:
-                    $ref: '../common.yaml#/components/schemas/Team'
+        '400':
+          description: Invalid request body
         '401':
           description: Unauthorized
-        '403':
-          description: Forbidden - User does not have permission to create teams in this company
         '404':
           description: Company not found
-
     get:
       summary: Get all teams
+      description: Returns a list of teams for a specific company
       tags: [Teams]
       security:
         - bearerAuth: []
+      parameters:
+        - in: query
+          name: companyId
+          required: true
+          schema:
+            type: string
+          description: ID of the company to get teams for
       responses:
         '200':
           description: List of teams
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '../common.yaml#/components/schemas/Team'
+                type: object
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Team'
+        '400':
+          description: Bad Request - Company ID is required
         '401':
           description: Unauthorized
+        '404':
+          description: Company not found
 
   /api/teams/{teamId}:
     get:
@@ -81,15 +84,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../common.yaml#/components/schemas/Team'
+                $ref: '#/components/schemas/Team'
         '401':
           description: Unauthorized
         '404':
           description: Team not found
-
-  /api/teams/{teamId}/members:
-    get:
-      summary: Get team members
+    delete:
+      summary: Delete team
       tags: [Teams]
       security:
         - bearerAuth: []
@@ -101,13 +102,7 @@ paths:
             type: string
       responses:
         '200':
-          description: List of team members
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '../common.yaml#/components/schemas/User'
+          description: Team deleted successfully
         '401':
           description: Unauthorized
         '404':
@@ -139,23 +134,39 @@ paths:
       responses:
         '201':
           description: User added to team successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                  team:
-                    $ref: '../common.yaml#/components/schemas/Team'
-        '401':
-          description: Unauthorized
-        '403':
-          description: Forbidden - User does not have permission to add members to this team
-        '404':
-          description: Team or User not found
         '400':
           description: User is already in this team
+        '401':
+          description: Unauthorized
+        '404':
+          description: Team not found or User not found
+
+  /api/teams/{teamId}/users/{userId}:
+    delete:
+      summary: Remove user from team
+      tags: [Teams]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: teamId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User removed from team successfully
+        '400':
+          description: User is not in this team
+        '401':
+          description: Unauthorized
+        '404':
+          description: Team not found
 
   /api/teams/{teamId}/users/bulk:
     post:
@@ -182,9 +193,46 @@ paths:
                   type: array
                   items:
                     type: string
+                  description: Array of user IDs to add
       responses:
         '201':
-          description: Users added to team successfully
+          description: Users added successfully
+        '400':
+          description: Invalid user IDs or all users already in team
+        '401':
+          description: Unauthorized
+        '404':
+          description: Team not found or some users not found
+
+  /api/teams/{teamId}/users/bulk-remove:
+    post:
+      summary: Bulk remove users from team
+      tags: [Teams]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: teamId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - userIds
+              properties:
+                userIds:
+                  type: array
+                  items:
+                    type: string
+                  description: Array of user IDs to remove from the team
+      responses:
+        '200':
+          description: Users successfully removed from team
           content:
             application/json:
               schema:
@@ -192,31 +240,54 @@ paths:
                 properties:
                   message:
                     type: string
-                  team:
-                    $ref: '../common.yaml#/components/schemas/Team'
-                  addedUsers:
-                    type: array
-                    items:
-                      $ref: '../common.yaml#/components/schemas/User'
-                  failedUsers:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        userId:
-                          type: string
-                        reason:
-                          type: string
+                  removedCount:
+                    type: number
+        '400':
+          description: Invalid request body
         '401':
           description: Unauthorized
         '403':
-          description: Forbidden - User does not have permission to add members to this team
+          description: Forbidden - Only team creator can remove users
         '404':
           description: Team not found
 
-  /api/teams/{teamId}/users/{userId}:
+  /api/teams/{teamId}/roles:
+    post:
+      summary: Add required role to team
+      tags: [Teams]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: teamId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - roleName
+              properties:
+                roleName:
+                  type: string
+      responses:
+        '201':
+          description: Role added successfully
+        '400':
+          description: Role is already required for this team
+        '401':
+          description: Unauthorized
+        '404':
+          description: Team not found or Role not found in company
+
+  /api/teams/{teamId}/roles/{roleName}:
     delete:
-      summary: Remove user from team
+      summary: Remove required role from team
+      description: Removes a role from the list of required roles for the team. This operation does not affect team members who already have this role.
       tags: [Teams]
       security:
         - bearerAuth: []
@@ -227,13 +298,13 @@ paths:
           schema:
             type: string
         - in: path
-          name: userId
+          name: roleName
           required: true
           schema:
             type: string
       responses:
         '200':
-          description: User removed from team successfully
+          description: Role removed successfully from required roles
           content:
             application/json:
               schema:
@@ -242,12 +313,77 @@ paths:
                   message:
                     type: string
                   team:
-                    $ref: '../common.yaml#/components/schemas/Team'
+                    $ref: '#/components/schemas/Team'
+        '400':
+          description: Role is not required for this team
         '401':
           description: Unauthorized
-        '403':
-          description: Forbidden - User does not have permission to remove members from this team
         '404':
-          description: Team or User not found
+          description: Team not found
+
+  /api/teams/{teamId}/roles/bulk:
+    post:
+      summary: Add multiple required roles to team
+      tags: [Teams]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: teamId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - roles
+              properties:
+                roles:
+                  type: array
+                  items:
+                    type: string
+                  description: Array of role names to add
+      responses:
+        '201':
+          description: Roles added successfully
         '400':
-          description: User is not in this team 
+          description: Invalid roles or all roles already required
+        '401':
+          description: Unauthorized
+        '404':
+          description: Team not found or Company not found
+
+components:
+  schemas:
+    Team:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        companyId:
+          type: string
+        createdBy:
+          type: string
+        members:
+          type: array
+          items:
+            type: object
+            properties:
+              userId:
+                type: string
+        requiredRoles:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time 

@@ -12,6 +12,10 @@ interface ITeam {
   requiredRoles: string[];
   createdAt: Date;
   updatedAt: Date;
+  addMember(userId: string): ITeam;
+  removeMember(userId: string): ITeam;
+  addRequiredRole(roleName: string): ITeam;
+  removeRequiredRole(roleName: string): ITeam;
 }
 
 const teamSchema = new mongoose.Schema<ITeam>({
@@ -59,7 +63,10 @@ teamSchema.methods.addMember = function(userId: string) {
 };
 
 teamSchema.methods.removeMember = function(userId: string) {
-  this.members = this.members.filter((member: ITeamMember) => member.userId !== userId);
+  this.members = this.members.filter((member: ITeamMember & { _id?: any }) => {
+    const memberId = member._id ? member._id.toString() : member.userId;
+    return memberId !== userId;
+  });
   return this;
 };
 

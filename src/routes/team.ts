@@ -1,7 +1,8 @@
 import express, { Response } from 'express';
-import { auth, hasTeamAccess } from '../middleware/auth';
+import { auth, hasTeamAccess, isTeamCreator } from '../middleware/auth';
 import { AuthRequest } from '../middleware/auth';
 import TeamService from '../services/teamService';
+import { Types } from 'mongoose';
 
 const router = express.Router();
 
@@ -263,6 +264,7 @@ router.post('/:teamId/roles', async (req: AuthRequest, res: Response) => {
  * /api/teams/{teamId}/roles/{roleName}:
  *   delete:
  *     summary: Remove required role from team
+ *     description: Removes a role from the list of required roles for the team. This operation does not affect team members who already have this role.
  *     tags: [Teams]
  *     security:
  *       - bearerAuth: []
@@ -279,9 +281,22 @@ router.post('/:teamId/roles', async (req: AuthRequest, res: Response) => {
  *           type: string
  *     responses:
  *       200:
- *         description: Role removed successfully
+ *         description: Role removed successfully from required roles
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 team:
+ *                   $ref: '#/components/schemas/Team'
+ *       400:
+ *         description: Role is not required for this team
  *       401:
  *         description: Unauthorized
+ *       404:
+ *         description: Team not found
  */
 router.delete('/:teamId/roles/:roleName', async (req: AuthRequest, res: Response) => {
   try {
@@ -289,7 +304,7 @@ router.delete('/:teamId/roles/:roleName', async (req: AuthRequest, res: Response
 
     const team = await TeamService.removeRequiredRole(teamId, roleName);
     res.json({
-      message: 'Role removed successfully',
+      message: 'Role removed successfully from required roles',
       team
     });
   } catch (error) {
@@ -311,43 +326,43 @@ router.delete('/:teamId/roles/:roleName', async (req: AuthRequest, res: Response
  * /api/teams:
  *   get:
  *     summary: Get all teams
+ *     description: Returns a list of teams for a specific company
  *     tags: [Teams]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: companyId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID of the company to get teams for
  *     responses:
  *       200:
  *         description: List of teams
  *         content:
  *           application/json:
  *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   _id:
- *                     type: string
- *                   name:
- *                     type: string
- *                   description:
- *                     type: string
- *                   company:
- *                     type: string
- *                   users:
- *                     type: array
- *                     items:
- *                       type: string
- *                   requiredRoles:
- *                     type: array
- *                     items:
- *                       type: string
- *                   createdAt:
- *                     type: string
- *                     format: date-time
- *                   updatedAt:
- *                     type: string
- *                     format: date-time
+ *               type: object
+ *               properties:
+ *                 teams:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Team'
+ *       400:
+ *         description: Bad Request - Company ID is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Company ID is required"
  *       401:
  *         description: Unauthorized
+ *       404:
+ *         description: Company not found
  */
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
@@ -662,6 +677,7 @@ router.post('/:teamId/users/bulk', async (req: AuthRequest, res: Response) => {
   try {
     const { teamId } = req.params;
     const { userIds } = req.body;
+    console.log('Bulk add users to team called with:', req.body);
 
     if (!Array.isArray(userIds) || userIds.length === 0) {
       return res.status(400).json({ message: 'User IDs array is required and must not be empty' });
@@ -684,6 +700,148 @@ router.post('/:teamId/users/bulk', async (req: AuthRequest, res: Response) => {
       }
     }
     console.error('Add users error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+/**
+ * @swagger
+ * /api/teams/{teamId}/users/bulk-remove:
+ *   post:
+ *     summary: Bulk remove users from team
+ *     tags: [Teams]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: teamId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - userIds
+ *             properties:
+ *               userIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of user IDs to remove from the team
+ *     responses:
+ *       200:
+ *         description: Users successfully removed from team
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 removedCount:
+ *                   type: number
+ *       400:
+ *         description: Invalid request body
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - Only team creator can remove users
+ *       404:
+ *         description: Team not found
+ */
+router.post('/:teamId/users/bulk-remove', auth, isTeamCreator, async (req: AuthRequest, res: Response) => {
+  try {
+    const { teamId } = req.params;
+    const { userIds } = req.body;
+    console.log('Bulk remove users from team called with:', req.body);
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ message: 'userIds must be a non-empty array' });
+    }
+
+    const result = await TeamService.bulkRemoveUsersFromTeam(teamId, userIds);
+    res.json(result);
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Team not found') {
+        return res.status(404).json({ message: error.message });
+      }
+    }
+    console.error('Bulk remove users from team error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+/**
+ * @swagger
+ * /api/teams/{teamId}/roles/bulk-remove:
+ *   post:
+ *     summary: Bulk remove required roles from team
+ *     description: Removes multiple roles from the list of required roles for the team. This operation does not affect team members who already have these roles.
+ *     tags: [Teams]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: teamId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - roleNames
+ *             properties:
+ *               roleNames:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of role names to remove from required roles
+ *     responses:
+ *       200:
+ *         description: Roles successfully removed from team
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 removedCount:
+ *                   type: number
+ *       400:
+ *         description: Invalid request body
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Team not found
+ */
+router.post('/:teamId/roles/bulk-remove', auth, isTeamCreator, async (req: AuthRequest, res: Response) => {
+  try {
+    const { teamId } = req.params;
+    const { roleNames } = req.body;
+
+    if (!Array.isArray(roleNames) || roleNames.length === 0) {
+      return res.status(400).json({ message: 'roleNames must be a non-empty array' });
+    }
+
+    const result = await TeamService.bulkRemoveRoles(teamId, roleNames);
+    res.json(result);
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Team not found') {
+        return res.status(404).json({ message: error.message });
+      }
+    }
+    console.error('Bulk remove roles error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });

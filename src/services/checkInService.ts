@@ -16,10 +16,7 @@ class CheckInService {
 
     // Validate each update
     for (const update of updates) {
-      // Convert 1-based index to 0-based for MongoDB array
-      const mongoIndex = update.index - 1;
-      
-      if (typeof update.index !== 'number' || update.index < 1 || mongoIndex >= okr.keyResults.length) {
+      if (typeof update.index !== 'number' || update.index < 0 || update.index >= okr.keyResults.length) {
         throw new Error('Invalid key result index');
       }
       if (typeof update.newProgress !== 'number' || update.newProgress < 0 || update.newProgress > 100) {
@@ -34,14 +31,14 @@ class CheckInService {
       comment,
       updates: updates.map(update => ({
         index: update.index,
-        previousProgress: okr.keyResults[update.index - 1].progress,
+        previousProgress: okr.keyResults[update.index].progress,
         newProgress: update.newProgress
       }))
     });
 
     // Update OKR key results
     for (const update of updates) {
-      okr.keyResults[update.index - 1].progress = update.newProgress;
+      okr.keyResults[update.index].progress = update.newProgress;
     }
 
     // Save both check-in and OKR in a transaction

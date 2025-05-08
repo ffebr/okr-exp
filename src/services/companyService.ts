@@ -319,4 +319,97 @@ export class CompanyService {
       updatedAt: company.updatedAt
     };
   }
+
+  // Assign multiple roles to user in company
+  static async assignRolesToUser(companyId: string, userId: string, roles: string[]) {
+    const company = await Company.findById(companyId);
+    if (!company) {
+      throw new Error('Company not found');
+    }
+
+    // Check if all roles exist in company
+    const invalidRoles = roles.filter(role => 
+      !company.roles.some(r => r.name === role)
+    );
+    if (invalidRoles.length > 0) {
+      throw new Error(`Invalid roles for this company: ${invalidRoles.join(', ')}`);
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Check if user is in company
+    if (!user.companies.some(c => c.toString() === companyId)) {
+      throw new Error('User is not in this company');
+    }
+
+    // Filter out roles that user already has
+    const existingRoles = user.roles
+      .filter(r => r.company.toString() === companyId)
+      .map(r => r.role);
+    
+    const newRoles = roles.filter(role => !existingRoles.includes(role));
+    if (newRoles.length === 0) {
+      throw new Error('User already has all these roles in the company');
+    }
+
+    // Add new roles to user's roles
+    user.roles.push(...newRoles.map(role => ({
+      company: new Types.ObjectId(companyId),
+      role: role
+    })));
+
+    await user.save();
+    return {
+      user,
+      addedRoles: newRoles
+    };
+  }
+
+  // Remove multiple roles from user in company
+  static async removeRolesFromUser(companyId: string, userId: string, roles: string[]) {
+    const company = await Company.findById(companyId);
+    if (!company) {
+      throw new Error('Company not found');
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Check if user is in company
+    if (!user.companies.some(c => c.toString() === companyId)) {
+      throw new Error('User is not in this company');
+    }
+
+    // Get user's roles for this company
+    const userCompanyRoles = user.roles.filter(r => r.company.toString() === companyId);
+    const userRoleNames = userCompanyRoles.map(r => r.role);
+
+    // Check if user has all the roles to be removed
+    const missingRoles = roles.filter(role => !userRoleNames.includes(role));
+    if (missingRoles.length > 0) {
+      throw new Error(`User doesn't have these roles in the company: ${missingRoles.join(', ')}`);
+    }
+
+    // Remove the roles
+    user.roles = user.roles.filter(r => 
+      !(r.company.toString() === companyId && roles.includes(r.role))
+    );
+
+    // If user has no more roles in this company, remove company from user's companies
+    const hasOtherRoles = user.roles.some(r => r.company.toString() === companyId);
+    if (!hasOtherRoles) {
+      user.companies = user.companies.filter(c => c.toString() !== companyId);
+    }
+
+    await user.save();
+    return {
+      user,
+      removedRoles: roles
+    };
+  }
 } 

@@ -31,7 +31,7 @@ const OKRSchema = new Schema({
   status: {
     type: String,
     enum: ['draft', 'active', 'done'],
-    default: 'draft'
+    default: 'active'
   }
 }, { timestamps: true });
 

@@ -605,4 +605,164 @@ router.get('/:companyId', auth, async (req: AuthRequest, res: Response) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/companies/{companyId}/users/{userId}/roles/bulk-assign:
+ *   post:
+ *     summary: Assign multiple roles to user in company
+ *     description: Assigns multiple roles to a user within a company. Only assigns roles that the user doesn't already have.
+ *     tags: [Companies]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: companyId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - roles
+ *             properties:
+ *               roles:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of role names to assign to the user
+ *     responses:
+ *       200:
+ *         description: Roles successfully assigned to user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                 addedRoles:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *       400:
+ *         description: Invalid request or user already has all roles
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Company or user not found
+ */
+router.post('/:companyId/users/:userId/roles/bulk-assign', auth, isCompanyCreator, async (req: AuthRequest, res: Response) => {
+  try {
+    const { companyId, userId } = req.params;
+    const { roles } = req.body;
+
+    if (!Array.isArray(roles) || roles.length === 0) {
+      return res.status(400).json({ message: 'roles must be a non-empty array' });
+    }
+
+    const result = await CompanyService.assignRolesToUser(companyId, userId, roles);
+    res.json(result);
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Company not found' || error.message === 'User not found') {
+        return res.status(404).json({ message: error.message });
+      }
+      if (error.message.includes('Invalid roles') || error.message.includes('already has all these roles')) {
+        return res.status(400).json({ message: error.message });
+      }
+    }
+    console.error('Bulk assign roles error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+/**
+ * @swagger
+ * /api/companies/{companyId}/users/{userId}/roles/bulk-remove:
+ *   post:
+ *     summary: Remove multiple roles from user in company
+ *     description: Removes multiple roles from a user within a company. If user has no more roles in the company, they will be removed from the company.
+ *     tags: [Companies]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: companyId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - roles
+ *             properties:
+ *               roles:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of role names to remove from the user
+ *     responses:
+ *       200:
+ *         description: Roles successfully removed from user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                 removedRoles:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *       400:
+ *         description: Invalid request or user doesn't have some roles
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Company or user not found
+ */
+router.post('/:companyId/users/:userId/roles/bulk-remove', auth, isCompanyCreator, async (req: AuthRequest, res: Response) => {
+  try {
+    const { companyId, userId } = req.params;
+    const { roles } = req.body;
+
+    if (!Array.isArray(roles) || roles.length === 0) {
+      return res.status(400).json({ message: 'roles must be a non-empty array' });
+    }
+
+    const result = await CompanyService.removeRolesFromUser(companyId, userId, roles);
+    res.json(result);
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Company not found' || error.message === 'User not found') {
+        return res.status(404).json({ message: error.message });
+      }
+      if (error.message.includes('doesn\'t have these roles')) {
+        return res.status(400).json({ message: error.message });
+      }
+    }
+    console.error('Bulk remove roles error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 export default router; 

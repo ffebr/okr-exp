@@ -737,6 +737,7 @@ paths:
 
     get:
       summary: Get all teams
+      description: Returns a list of teams for a specific company
       tags: [Teams]
       security:
         - bearerAuth: []
@@ -746,7 +747,7 @@ paths:
           required: true
           schema:
             type: string
-          description: ID of the company to get teams from
+          description: ID of the company to get teams for
       responses:
         '200':
           description: List of teams
@@ -759,10 +760,18 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Team'
+        '400':
+          description: Bad Request - Company ID is required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Company ID is required"
         '401':
           description: Unauthorized
-        '400':
-          description: Company ID is required
         '404':
           description: Company not found
 
@@ -1302,18 +1311,20 @@ paths:
         '404':
           description: OKR not found
 
-  /api/teams/{teamId}/roles:
-    post:
-      summary: Add a single required role to team
-      tags: [Teams]
+  /api/okrs/{okrId}/status:
+    patch:
+      summary: Update OKR status
+      description: Update the status of an OKR (draft, active, done)
+      tags: [OKRs]
       security:
         - bearerAuth: []
       parameters:
         - in: path
-          name: teamId
+          name: okrId
           required: true
           schema:
             type: string
+          description: ID of the OKR to update
       requestBody:
         required: true
         content:
@@ -1321,14 +1332,15 @@ paths:
             schema:
               type: object
               required:
-                - roleName
+                - status
               properties:
-                roleName:
+                status:
                   type: string
-                  description: Name of the role to add
+                  enum: [draft, active, done]
+                  description: New status for the OKR
       responses:
-        '201':
-          description: Role added successfully
+        '200':
+          description: OKR status updated successfully
           content:
             application/json:
               schema:
@@ -1336,42 +1348,10 @@ paths:
                 properties:
                   message:
                     type: string
-                  team:
-                    $ref: '#/components/schemas/Team'
+                  okr:
+                    $ref: '#/components/schemas/OKR'
         '400':
-          description: Role is already required for this team
-        '401':
-          description: Unauthorized
-        '404':
-          description: Team not found or Role not found in company
-
-  /api/teams/{teamId}/users:
-    post:
-      summary: Add a single user to team
-      tags: [Teams]
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: teamId
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - userId
-              properties:
-                userId:
-                  type: string
-                  description: ID of the user to add
-      responses:
-        '201':
-          description: User added successfully
+          description: Invalid status value
           content:
             application/json:
               schema:
@@ -1379,101 +1359,10 @@ paths:
                 properties:
                   message:
                     type: string
-                  team:
-                    $ref: '#/components/schemas/Team'
-        '400':
-          description: User is already in team or does not have required roles
+                    example: "Invalid status value. Must be one of: draft, active, done"
         '401':
           description: Unauthorized
+        '403':
+          description: User does not have permission to update this OKR
         '404':
-          description: Team not found or User not found
-
-  /api/teams/{teamId}/roles/bulk:
-    post:
-      summary: Add multiple required roles to team (bulk operation)
-      tags: [Teams]
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: teamId
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - roles
-              properties:
-                roles:
-                  type: array
-                  items:
-                    type: string
-                  description: Array of role names to add (use /roles endpoint for single role)
-      responses:
-        '201':
-          description: Roles added successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                  team:
-                    $ref: '#/components/schemas/Team'
-        '400':
-          description: Invalid roles or all roles already required
-        '401':
-          description: Unauthorized
-        '404':
-          description: Team not found or Company not found
-
-  /api/teams/{teamId}/users/bulk:
-    post:
-      summary: Add multiple users to team (bulk operation)
-      tags: [Teams]
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: teamId
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - userIds
-              properties:
-                userIds:
-                  type: array
-                  items:
-                    type: string
-                  description: Array of user IDs to add (use /users endpoint for single user)
-      responses:
-        '201':
-          description: Users added successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                  team:
-                    $ref: '#/components/schemas/Team'
-        '400':
-          description: Invalid users or all users already in team
-        '401':
-          description: Unauthorized
-        '404':
-          description: Team not found or some users not found 
+          description: OKR not found 

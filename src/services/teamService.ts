@@ -62,12 +62,7 @@ class TeamService {
       throw new Error('User is not in this company');
     }
 
-    // Check if user is already in the team
-    if (team.members.some(member => member.userId === userId)) {
-      throw new Error('User is already in this team');
-    }
-
-    team.members.push({ userId });
+    team.addMember(userId);
     await team.save();
     return team;
   }
@@ -78,12 +73,7 @@ class TeamService {
       throw new Error('Team not found');
     }
 
-    // Check if user is in the team
-    if (!team.members.some(member => member.userId === userId)) {
-      throw new Error('User is not in this team');
-    }
-
-    team.members = team.members.filter(member => member.userId !== userId);
+    team.removeMember(userId);
     await team.save();
     return team;
   }
@@ -104,12 +94,7 @@ class TeamService {
       throw new Error('Role not found in company');
     }
 
-    // Check if role is already required
-    if (team.requiredRoles.includes(roleName)) {
-      throw new Error('Role is already required for this team');
-    }
-
-    team.requiredRoles.push(roleName);
+    team.addRequiredRole(roleName);
     await team.save();
     return team;
   }
@@ -151,12 +136,7 @@ class TeamService {
       throw new Error('Team not found');
     }
 
-    // Check if role is required
-    if (!team.requiredRoles.includes(roleName)) {
-      throw new Error('Role is not required for this team');
-    }
-
-    team.requiredRoles = team.requiredRoles.filter(role => role !== roleName);
+    team.removeRequiredRole(roleName);
     await team.save();
     return team;
   }
@@ -257,6 +237,80 @@ class TeamService {
     team.members.push(...newUserIds.map(userId => ({ userId })));
     await team.save();
     return team;
+  }
+
+  static async getTeamById(teamId: string) {
+    try {
+      const team = await Team.findById(teamId);
+      if (!team) {
+        throw new Error('Team not found');
+      }
+      return team;
+    } catch (error) {
+      console.error('Error in getTeamById:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Unknown error occurred while getting team');
+    }
+  }
+
+  static async bulkRemoveUsersFromTeam(teamId: string, userIds: string[]) {
+    try {
+      console.log('Starting bulk removal:', { teamId, userIds });
+      
+      const team = await Team.findById(new Types.ObjectId(teamId));
+      if (!team) {
+        throw new Error('Team not found');
+      }
+
+      console.log('Before removal - team members:', team.members);
+      
+      for (const userId of userIds) {
+        console.log('Removing user:', userId);
+        team.removeMember(userId);
+        console.log('After removing user - team members:', team.members);
+      }
+
+      await team.save();
+      console.log('Final team members after save:', team.members);
+
+      return {
+        message: 'Users successfully removed from team',
+        removedCount: userIds.length
+      };
+    } catch (error) {
+      console.error('Error in bulkRemoveUsersFromTeam:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Unknown error occurred while removing users from team');
+    }
+  }
+
+  static async bulkRemoveRoles(teamId: string, roleNames: string[]) {
+    try {
+      const team = await Team.findById(new Types.ObjectId(teamId));
+      if (!team) {
+        throw new Error('Team not found');
+      }
+
+      for (const roleName of roleNames) {
+        team.removeRequiredRole(roleName);
+      }
+
+      await team.save();
+      return {
+        message: 'Roles successfully removed from team',
+        removedCount: roleNames.length
+      };
+    } catch (error) {
+      console.error('Error in bulkRemoveRoles:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Unknown error occurred while removing roles from team');
+    }
   }
 }
 
