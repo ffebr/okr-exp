@@ -2,6 +2,8 @@ import express, { Response } from 'express';
 import { auth, hasTeamAccess, canManageOKR } from '../middleware/auth';
 import { AuthRequest } from '../middleware/auth';
 import OKRService from '../services/okrService';
+import CorporateOKRService from '../services/corporateOKRService';
+import { OKR, IOKR } from '../models/OKR';
 
 const router = express.Router();
 
@@ -44,6 +46,12 @@ router.use(auth);
  *                       type: string
  *                     description:
  *                       type: string
+ *               parentOKR:
+ *                 type: string
+ *                 description: ID of the corporate OKR this team OKR is linked to
+ *               parentKRIndex:
+ *                 type: integer
+ *                 description: Index of the key result in the corporate OKR
  *     responses:
  *       201:
  *         description: OKR created successfully
@@ -53,17 +61,58 @@ router.use(auth);
  *         description: Team not found
  *       403:
  *         description: User does not have access to this team
+ *       400:
+ *         description: Invalid parent OKR or KR index
  */
 router.post('/teams/:teamId/okrs', hasTeamAccess, async (req: AuthRequest, res: Response) => {
   try {
     const { teamId } = req.params;
-    const { objective, description, keyResults } = req.body;
+    const { objective, description, keyResults, parentOKR, parentKRIndex } = req.body;
     const userId = req.user.id;
 
-    const okr = await OKRService.createOKR(teamId, userId, objective, description, keyResults);
+    // Создаем OKR без привязки к корпоративному OKR
+    const okr: IOKR = await OKRService.createOKR(
+      teamId,
+      userId,
+      objective,
+      description,
+      keyResults
+    );
+
+    // Если указаны parentOKR и parentKRIndex, привязываем OKR к корпоративному
+    if (parentOKR && parentKRIndex !== undefined) {
+      try {
+        await CorporateOKRService.linkTeamOKRToCorporate(
+          okr._id.toString(),
+          parentOKR,
+          parentKRIndex,
+          userId
+        );
+      } catch (error) {
+        // Если не удалось привязать, удаляем созданный OKR
+        await OKR.deleteOne({ _id: okr._id });
+        
+        if (error instanceof Error) {
+          if (error.message.includes('not found')) {
+            return res.status(404).json({ message: error.message });
+          }
+          if (error.message.includes('Team is not assigned')) {
+            return res.status(400).json({ message: error.message });
+          }
+          if (error.message.includes('Only team creator')) {
+            return res.status(403).json({ message: error.message });
+          }
+        }
+        throw error;
+      }
+    }
+
+    // Получаем обновленный OKR с привязкой
+    const updatedOKR = await OKRService.getOKRById(okr._id.toString());
+
     res.status(201).json({
       message: 'OKR created successfully',
-      okr
+      okr: updatedOKR
     });
   } catch (error) {
     if (error instanceof Error) {
@@ -360,6 +409,75 @@ router.get('/okrs/:okrId', canManageOKR, async (req: AuthRequest, res: Response)
       }
     }
     console.error('Get OKR error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+/**
+ * @swagger
+ * /api/okrs/{okrId}/link-to-corporate:
+ *   post:
+ *     summary: Link team OKR to corporate OKR
+ *     tags: [OKRs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: okrId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - corporateOKRId
+ *               - krIndex
+ *             properties:
+ *               corporateOKRId:
+ *                 type: string
+ *               krIndex:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: OKR linked successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Only team creator or OKR creator can link OKRs
+ *       404:
+ *         description: OKR not found
+ */
+router.post('/okrs/:okrId/link-to-corporate', canManageOKR, async (req: AuthRequest, res: Response) => {
+  try {
+    const { okrId } = req.params;
+    const { corporateOKRId, krIndex } = req.body;
+    const userId = req.user.id;
+
+    const teamOKR = await CorporateOKRService.linkTeamOKRToCorporate(
+      okrId,
+      corporateOKRId,
+      krIndex,
+      userId
+    );
+
+    res.json({
+      message: 'OKR linked successfully',
+      teamOKR
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes('not found')) {
+        return res.status(404).json({ message: error.message });
+      }
+      if (error.message.includes('Only team creator') || error.message.includes('Team is not assigned')) {
+        return res.status(403).json({ message: error.message });
+      }
+    }
+    console.error('Link OKR error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });

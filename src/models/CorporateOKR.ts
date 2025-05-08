@@ -30,17 +30,74 @@ const CorporateOKRSchema = new Schema({
 
 }, { timestamps: true });
 
-// при сохранении пересчитываем общий прогресс
-CorporateOKRSchema.pre('save', function(next) {
-    if (this.keyResults.length > 0) {
-      // Явно указываем тип аккумулятора и элементов
-      const total = (this.keyResults as Array<{ progress?: number }>)
-        .reduce<number>((sum, kr) => sum + (kr.progress ?? 0), 0);
-      this.progress = Math.round(total / this.keyResults.length);
-    } else {
-      this.progress = 0;
-    }
-    next();
+// Функция для пересчета прогресса KR на основе связанных OKR
+export async function recalculateKRProgress(krIndex: number, corporateOKRId: Types.ObjectId) {
+  const { OKR } = await import('./OKR');
+  const CorporateOKR = model('CorporateOKR');
+
+  const linkedOKRs = await OKR.find({
+    parentOKR: corporateOKRId,
+    parentKRIndex: krIndex
   });
+
+  if (linkedOKRs.length > 0) {
+    const totalProgress = linkedOKRs.reduce((sum, okr) => sum + okr.progress, 0);
+    const averageProgress = Math.round(totalProgress / linkedOKRs.length);
+
+    // Обновляем прогресс KR
+    await CorporateOKR.updateOne(
+      { _id: corporateOKRId },
+      { $set: { [`keyResults.${krIndex}.progress`]: averageProgress } }
+    );
+
+    // Получаем обновленный документ для пересчета общего прогресса
+    const corporateOKR = await CorporateOKR.findById(corporateOKRId);
+    if (corporateOKR) {
+      // Пересчитываем общий прогресс
+      const totalKRProgress = corporateOKR.keyResults.reduce((sum: number, kr: { progress: number }) => sum + kr.progress, 0);
+      const overallProgress = Math.round(totalKRProgress / corporateOKR.keyResults.length);
+
+      // Обновляем общий прогресс
+      await CorporateOKR.updateOne(
+        { _id: corporateOKRId },
+        { $set: { progress: overallProgress } }
+      );
+    }
+  }
+}
+
+// Middleware для пересчета прогресса при сохранении
+CorporateOKRSchema.pre('save', async function(next) {
+  if (this.keyResults.length > 0) {
+    // Пересчитываем прогресс для каждого KR
+    for (let i = 0; i < this.keyResults.length; i++) {
+      await recalculateKRProgress(i, this._id);
+    }
+
+    // Пересчитываем общий прогресс
+    const total = (this.keyResults as Array<{ progress: number }>)
+      .reduce((sum, kr) => sum + kr.progress, 0);
+    this.progress = Math.round(total / this.keyResults.length);
+  } else {
+    this.progress = 0;
+  }
+  next();
+});
+
+// Middleware для пересчета прогресса при обновлении
+CorporateOKRSchema.pre('findOneAndUpdate', async function(next) {
+  const update = this.getUpdate();
+  if (update && '$set' in update) {
+    const setUpdate = update.$set as any;
+    if (setUpdate && 'keyResults' in setUpdate) {
+      const keyResults = setUpdate.keyResults;
+      if (Array.isArray(keyResults)) {
+        const total = keyResults.reduce((sum: number, kr: any) => sum + (kr.progress || 0), 0);
+        setUpdate.progress = Math.round(total / keyResults.length);
+      }
+    }
+  }
+  next();
+});
 
 export const CorporateOKR = model('CorporateOKR', CorporateOKRSchema);

@@ -10,6 +10,7 @@ import teamRoutes from './routes/team';
 import okrRoutes from './routes/okr';
 import checkInRoutes from './routes/checkIn';
 import userRoutes from './routes/user';
+import corporateOKRRoutes from './routes/corporateOKR';
 
 dotenv.config();
 
@@ -61,6 +62,7 @@ app.use('/api/teams', teamRoutes);
 app.use('/api', okrRoutes);
 app.use('/api/check-ins', checkInRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api', corporateOKRRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

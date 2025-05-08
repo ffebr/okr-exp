@@ -1,10 +1,18 @@
 import { Types } from 'mongoose';
-import { OKR } from '../models/OKR';
+import { OKR, IOKR } from '../models/OKR';
 import Team from '../models/Team';
 import { User } from '../models/User';
 
 class OKRService {
-  static async createOKR(teamId: string, userId: string, objective: string, description?: string, keyResults?: Array<{ title: string, description?: string }>) {
+  static async createOKR(
+    teamId: string,
+    userId: string,
+    objective: string,
+    description?: string,
+    keyResults?: Array<{ title: string, description?: string }>,
+    parentOKR?: string,
+    parentKRIndex?: number
+  ): Promise<IOKR> {
     if (!userId) {
       throw new Error('User ID is required');
     }
@@ -43,14 +51,16 @@ class OKRService {
         title: kr.title,
         description: kr.description,
         progress: 0
-      })) || []
+      })) || [],
+      parentOKR: parentOKR ? new Types.ObjectId(parentOKR) : undefined,
+      parentKRIndex
     });
 
     await okr.save();
     return okr;
   }
 
-  static async getTeamOKRs(teamId: string, userId: string) {
+  static async getTeamOKRs(teamId: string, userId: string): Promise<IOKR[]> {
     // Check if team exists
     const team = await Team.findById(new Types.ObjectId(teamId));
     if (!team) {
@@ -82,7 +92,7 @@ class OKRService {
     return okrs;
   }
 
-  static async addKeyResult(okrId: string, title: string, description?: string) {
+  static async addKeyResult(okrId: string, title: string, description?: string): Promise<IOKR> {
     try {
       if (!okrId) {
         throw new Error('OKR ID is required');
@@ -122,7 +132,7 @@ class OKRService {
     }
   }
 
-  static async updateOKRStatus(okrId: string, status: string) {
+  static async updateOKRStatus(okrId: string, status: 'draft' | 'active' | 'done'): Promise<IOKR> {
     console.log('updateOKRStatus', okrId, status);
     try {
       if (!okrId) {
@@ -147,7 +157,7 @@ class OKRService {
       }
 
       // Update status
-      okr.status = status as "draft" | "active" | "done";
+      okr.status = status;
       await okr.save();
 
       return okr;
@@ -160,7 +170,7 @@ class OKRService {
     }
   }
 
-  static async getOKRById(okrId: string) {
+  static async getOKRById(okrId: string): Promise<IOKR> {
     try {
       if (!okrId) {
         throw new Error('OKR ID is required');
