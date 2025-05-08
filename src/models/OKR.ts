@@ -67,12 +67,9 @@ OKRSchema.pre('save', async function(this: IOKR, next) {
       this.progress = 0;
     }
 
-    // Обновляем прогресс корпоративного KR если:
-    // 1. OKR привязан к KR (parentOKR и parentKRIndex установлены)
-    // 2. Изменился прогресс OKR
-    // 3. Изменилась привязка к KR (добавили или изменили parentOKR/parentKRIndex)
-    if (this.parentOKR && this.parentKRIndex !== undefined && 
-        (this.isModified('progress') || this.isModified('parentOKR') || this.isModified('parentKRIndex'))) {
+    // Если OKR привязан к корпоративному KR, обновляем его прогресс
+    if (this.parentOKR && typeof this.parentKRIndex === 'number') {
+      const { recalculateKRProgress } = await import('./CorporateOKR');
       await recalculateKRProgress(this.parentKRIndex, this.parentOKR);
     }
 
@@ -83,33 +80,20 @@ OKRSchema.pre('save', async function(this: IOKR, next) {
   }
 });
 
+// Middleware для обновления прогресса корпоративного KR при обновлении OKR
 OKRSchema.pre('findOneAndUpdate', async function(next) {
-  try {
-    const update = this.getUpdate();
-    if (update && '$set' in update) {
-      const setUpdate = update.$set as any;
-      const okr = await this.model.findOne(this.getQuery());
-      
-      // Проверяем, изменился ли прогресс или привязка к KR
-      if (okr && 
-          ((setUpdate.progress !== undefined) || 
-           (setUpdate.parentOKR !== undefined) || 
-           (setUpdate.parentKRIndex !== undefined))) {
-        
-        // Используем новые значения из update или существующие из okr
-        const parentOKR = setUpdate.parentOKR || okr.parentOKR;
-        const parentKRIndex = setUpdate.parentKRIndex !== undefined ? setUpdate.parentKRIndex : okr.parentKRIndex;
-        
-        if (parentOKR && parentKRIndex !== undefined) {
-          await recalculateKRProgress(parentKRIndex, parentOKR);
-        }
+  const update = this.getUpdate();
+  if (update && '$set' in update) {
+    const setUpdate = update.$set as any;
+    if (setUpdate && 'progress' in setUpdate) {
+      const doc = await this.model.findOne(this.getQuery());
+      if (doc && doc.parentOKR && typeof doc.parentKRIndex === 'number') {
+        const { recalculateKRProgress } = await import('./CorporateOKR');
+        await recalculateKRProgress(doc.parentKRIndex, doc.parentOKR);
       }
     }
-    next();
-  } catch (error) {
-    console.error('Error in OKR findOneAndUpdate middleware:', error);
-    next(error as Error);
   }
+  next();
 });
 
 export const OKR = model<IOKR>('OKR', OKRSchema);
