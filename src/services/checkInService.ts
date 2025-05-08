@@ -1,6 +1,7 @@
 import { CheckIn } from '../models/CheckIn';
 import { OKR } from '../models/OKR';
 import { Types } from 'mongoose';
+import { recalculateKRProgress } from '../models/CorporateOKR';
 
 class CheckInService {
   async createCheckIn(okrId: string, userId: string, updates: Array<{ index: number; newProgress: number }>, comment?: string) {
@@ -46,6 +47,11 @@ class CheckInService {
       checkIn.save(),
       okr.save()
     ]);
+
+    // If this OKR is linked to a corporate OKR, recalculate its progress
+    if (okr.parentOKR && okr.parentKRIndex !== undefined) {
+      await recalculateKRProgress(okr.parentKRIndex, okr.parentOKR);
+    }
 
     return checkIn;
   }

@@ -68,8 +68,29 @@ OKRSchema.pre('save', async function(this: IOKR, next) {
     }
 
     // Если OKR привязан к корпоративному KR, обновляем его прогресс
-    if (this.parentOKR && typeof this.parentKRIndex === 'number') {
-      const { recalculateKRProgress } = await import('./CorporateOKR');
+    if (this.parentOKR && this.parentKRIndex !== undefined) {
+      const corporateOKR = await CorporateOKR.findById(this.parentOKR);
+      if (corporateOKR && corporateOKR.keyResults[this.parentKRIndex]) {
+        // Находим все OKR, привязанные к этому KR
+        const linkedOKRs = await OKR.find({
+          parentOKR: this.parentOKR,
+          parentKRIndex: this.parentKRIndex
+        });
+
+        // Считаем средний прогресс всех привязанных OKR
+        const totalProgress = linkedOKRs.reduce((sum: number, okr: IOKR) => sum + okr.progress, 0);
+        const averageProgress = Math.round(totalProgress / linkedOKRs.length);
+
+        // Обновляем прогресс корпоративного KR
+        if (corporateOKR.keyResults[this.parentKRIndex]) {
+          corporateOKR.keyResults[this.parentKRIndex].progress = averageProgress;
+          await corporateOKR.save();
+        }
+      }
+    }
+
+    // Middleware для обновления прогресса корпоративного KR при изменении прогресса OKR
+    if (this.isModified('progress') && this.parentOKR && this.parentKRIndex !== undefined) {
       await recalculateKRProgress(this.parentKRIndex, this.parentOKR);
     }
 
@@ -80,17 +101,12 @@ OKRSchema.pre('save', async function(this: IOKR, next) {
   }
 });
 
-// Middleware для обновления прогресса корпоративного KR при обновлении OKR
 OKRSchema.pre('findOneAndUpdate', async function(next) {
   const update = this.getUpdate();
-  if (update && '$set' in update) {
-    const setUpdate = update.$set as any;
-    if (setUpdate && 'progress' in setUpdate) {
-      const doc = await this.model.findOne(this.getQuery());
-      if (doc && doc.parentOKR && typeof doc.parentKRIndex === 'number') {
-        const { recalculateKRProgress } = await import('./CorporateOKR');
-        await recalculateKRProgress(doc.parentKRIndex, doc.parentOKR);
-      }
+  if (update && '$set' in update && (update.$set as any).progress !== undefined) {
+    const okr = await this.model.findOne(this.getQuery());
+    if (okr && okr.parentOKR && okr.parentKRIndex !== undefined) {
+      await recalculateKRProgress(okr.parentKRIndex, okr.parentOKR);
     }
   }
   next();

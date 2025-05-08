@@ -44,25 +44,10 @@ export async function recalculateKRProgress(krIndex: number, corporateOKRId: Typ
     const totalProgress = linkedOKRs.reduce((sum, okr) => sum + okr.progress, 0);
     const averageProgress = Math.round(totalProgress / linkedOKRs.length);
 
-    // Обновляем прогресс KR
     await CorporateOKR.updateOne(
       { _id: corporateOKRId },
       { $set: { [`keyResults.${krIndex}.progress`]: averageProgress } }
     );
-
-    // Получаем обновленный документ для пересчета общего прогресса
-    const corporateOKR = await CorporateOKR.findById(corporateOKRId);
-    if (corporateOKR) {
-      // Пересчитываем общий прогресс
-      const totalKRProgress = corporateOKR.keyResults.reduce((sum: number, kr: { progress: number }) => sum + kr.progress, 0);
-      const overallProgress = Math.round(totalKRProgress / corporateOKR.keyResults.length);
-
-      // Обновляем общий прогресс
-      await CorporateOKR.updateOne(
-        { _id: corporateOKRId },
-        { $set: { progress: overallProgress } }
-      );
-    }
   }
 }
 

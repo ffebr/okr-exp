@@ -1,10 +1,9 @@
 import { Types, Document } from 'mongoose';
-import { CorporateOKR } from '../models/CorporateOKR';
+import { CorporateOKR, recalculateKRProgress } from '../models/CorporateOKR';
 import { OKR } from '../models/OKR';
 import { User } from '../models/User';
 import { Company } from '../models/Company';
 import Team from '../models/Team';
-import { recalculateKRProgress } from '../models/CorporateOKR';
 
 interface CorporateKR {
   title: string;
@@ -199,7 +198,7 @@ class CorporateOKRService {
       throw new Error('Failed to update team OKR');
     }
 
-    // Пересчитываем прогресс KR
+    // Пересчитываем прогресс корпоративного KR
     await recalculateKRProgress(krIndex, new Types.ObjectId(corporateOKRId));
 
     return updatedTeamOKR;
