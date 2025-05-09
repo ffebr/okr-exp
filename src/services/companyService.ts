@@ -1,6 +1,7 @@
 import { Company } from '../models/Company';
 import { User } from '../models/User';
 import { Types } from 'mongoose';
+import Team from '../models/Team';
 
 export class CompanyService {
   // Create a new company
@@ -213,19 +214,25 @@ export class CompanyService {
       user.roles = user.roles.filter(r => 
         !(r.company.toString() === companyId && r.role === role)
       );
-
-      // If user has no more roles in this company, remove company from user's companies
-      const hasOtherRoles = user.roles.some(r => r.company.toString() === companyId);
-      if (!hasOtherRoles) {
-        user.companies = user.companies.filter(c => c.toString() !== companyId);
-      }
-
       await user.save();
+    }
+
+    // Find all teams in this company that have this role as required
+    const teams = await Team.find({
+      companyId,
+      requiredRoles: role
+    });
+
+    // Remove the role from all teams
+    for (const team of teams) {
+      team.removeRequiredRole(role);
+      await team.save();
     }
 
     return {
       company,
-      affectedUsers: users.length
+      affectedUsers: users.length,
+      affectedTeams: teams.length
     };
   }
 
