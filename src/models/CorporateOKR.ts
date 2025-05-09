@@ -63,68 +63,92 @@ const CorporateOKRSchema = new Schema<CorporateOKRDocument>({
 }, { timestamps: true });
 
 // Функция агрегации actualValue и пересчёта progress по связям команд → CorporateOKR
-export async function recalculateKRProgress(
-  krIndex: number,
-  corporateOKRId: Types.ObjectId
-) {
+export async function recalculateKRProgress(krIndex: number, corporateOKRId: Types.ObjectId) {
   const { OKR } = await import('./OKR');
   const CorporateOKR = model('CorporateOKR');
 
-  // 1) получаем все OKR-команд, связанные с этим KR
-  const linked = await OKR.find({
-    parentOKR:      corporateOKRId,
-    parentKRIndex:  krIndex
+  const linkedOKRs = await OKR.find({
+    parentOKR: corporateOKRId,
+    parentKRIndex: krIndex
   });
 
-  // 2) среднее actualValue команд
-  const avgActual = linked.length > 0
-    ? linked.reduce((s, o) => s + (o.keyResults[krIndex].actualValue || 0), 0) / linked.length
-    : 0;
+  if (linkedOKRs.length > 0) {
+    // Normalize progress values to ensure they stay within 0-100 range and are valid numbers
+    const normalizedProgresses = linkedOKRs.map(okr => {
+      const progress = okr.progress || 0;
+      return Math.min(Math.max(Number(progress), 0), 100);
+    }).filter(progress => !isNaN(progress));
 
-  // 3) достаём стар/таргет из CorporateOKR
-  const corp = await CorporateOKR.findById(corporateOKRId);
-  if (!corp) return;
-  const kr = corp.keyResults[krIndex];
-  const span = kr.targetValue - kr.startValue;
-  const pct  = span === 0
-    ? 100
-    : Math.min(100, Math.max(0, Math.round((avgActual - kr.startValue) / span * 100)));
+    if (normalizedProgresses.length > 0) {
+      const totalProgress = normalizedProgresses.reduce((sum, progress) => sum + progress, 0);
+      const averageProgress = Math.round(totalProgress / normalizedProgresses.length);
 
-  // 4) обновляем actualValue и progress для этого KR
-  await CorporateOKR.updateOne(
-    { _id: corporateOKRId },
-    {
-      $set: {
-        [`keyResults.${krIndex}.actualValue`]: avgActual,
-        [`keyResults.${krIndex}.progress`]:    pct
+      // Обновляем прогресс конкретного KR
+      await CorporateOKR.updateOne(
+        { _id: corporateOKRId },
+        { $set: { [`keyResults.${krIndex}.progress`]: averageProgress } }
+      );
+
+      // Получаем обновленный документ для пересчета общего прогресса
+      const corporateOKR = await CorporateOKR.findById(corporateOKRId);
+      if (corporateOKR && corporateOKR.keyResults.length > 0) {
+        // Считаем средний прогресс по всем KR, нормализуя значения
+        const totalKRProgress = corporateOKR.keyResults.reduce((sum: number, kr: { progress: number }) => {
+          const progress = kr.progress || 0;
+          const normalizedProgress = Math.min(Math.max(Number(progress), 0), 100);
+          return sum + (isNaN(normalizedProgress) ? 0 : normalizedProgress);
+        }, 0);
+        const overallProgress = Math.round(totalKRProgress / corporateOKR.keyResults.length);
+
+        // Обновляем общий прогресс OKR
+        await CorporateOKR.updateOne(
+          { _id: corporateOKRId },
+          { $set: { progress: overallProgress } }
+        );
       }
     }
-  );
-
-  // 5) пересчитываем общий progress всего CorporateOKR
-  const updated = await CorporateOKR.findById(corporateOKRId);
-  if (!updated) return;
-  const total = updated.keyResults.reduce((s: number, k: CorporateKR) => s + k.progress, 0);
-  const overall = Math.round(total / updated.keyResults.length);
-  await CorporateOKR.updateOne(
-    { _id: corporateOKRId },
-    { $set: { progress: overall } }
-  );
+  }
 }
 
-// При сохранении пересчитываем прогресс каждого KR из его actualValue и потом общий
-CorporateOKRSchema.pre('save', function(this: CorporateOKRDocument, next) {
-  this.keyResults.forEach(kr => {
-    const span = kr.targetValue - kr.startValue;
-    const raw  = span === 0
-      ? 100
-      : ((kr.actualValue - kr.startValue) / span) * 100;
-    kr.progress = Math.min(100, Math.max(0, Math.round(raw)));
-  });
-  const total = this.keyResults.reduce((s, k) => s + k.progress, 0);
-  this.progress = this.keyResults.length
-    ? Math.round(total / this.keyResults.length)
-    : 0;
+// Middleware для пересчета прогресса при сохранении
+CorporateOKRSchema.pre('save', async function(this: any, next) {
+  if (this.keyResults.length > 0) {
+    // Пересчитываем прогресс для каждого KR
+    for (let i = 0; i < this.keyResults.length; i++) {
+      await recalculateKRProgress(i, this._id);
+    }
+
+    // Пересчитываем общий прогресс
+    const total = (this.keyResults as Array<{ progress: number }>)
+      .reduce((sum, kr) => {
+        const progress = kr.progress || 0;
+        const normalizedProgress = Math.min(Math.max(Number(progress), 0), 100);
+        return sum + (isNaN(normalizedProgress) ? 0 : normalizedProgress);
+      }, 0);
+    this.progress = Math.round(total / this.keyResults.length);
+  } else {
+    this.progress = 0;
+  }
+  next();
+});
+
+// Middleware для пересчета прогресса при обновлении
+CorporateOKRSchema.pre('findOneAndUpdate', async function(next) {
+  const update = this.getUpdate();
+  if (update && '$set' in update) {
+    const setUpdate = update.$set as any;
+    if (setUpdate && 'keyResults' in setUpdate) {
+      const keyResults = setUpdate.keyResults;
+      if (Array.isArray(keyResults)) {
+        const total = keyResults.reduce((sum: number, kr: any) => {
+          const progress = kr.progress || 0;
+          const normalizedProgress = Math.min(Math.max(Number(progress), 0), 100);
+          return sum + (isNaN(normalizedProgress) ? 0 : normalizedProgress);
+        }, 0);
+        setUpdate.progress = Math.round(total / keyResults.length);
+      }
+    }
+  }
   next();
 });
 
