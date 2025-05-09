@@ -4,6 +4,7 @@ import { User } from '../models/User';
 import { Company } from '../models/Company';
 import Team from '../models/Team';
 import { OKR } from '../models/OKR';
+import { CorporateOKR } from '../models/CorporateOKR';
 import { Types } from 'mongoose';
 
 export interface AuthRequest extends Request {
@@ -199,6 +200,76 @@ export const isTeamCreator = async (req: AuthRequest, res: Response, next: NextF
     }
 
     next();
+  } catch (error) {
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export const isCorporateOKRCreator = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const okrId = req.params.corporateOKRId || req.params.okrId;
+    const userId = req.user.id;
+
+    const corporateOKR = await CorporateOKR.findById(okrId);
+    if (!corporateOKR) {
+      return res.status(404).json({ message: 'Corporate OKR not found' });
+    }
+
+    const company = await Company.findById(corporateOKR.company);
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    if (company.createdBy.toString() !== userId) {
+      return res.status(403).json({ message: 'Access denied. Only company creator can perform this action' });
+    }
+
+    next();
+  } catch (error) {
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export const hasTeamAndCompanyAccess = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const teamId = req.params.teamId;
+    const userId = req.user.id;
+
+    // Check if team exists
+    const team = await Team.findById(teamId);
+    if (!team) {
+      return res.status(404).json({ message: 'Team not found' });
+    }
+
+    // Check if user is a team member
+    const isTeamMember = team.members.some(member => member.userId.toString() === userId);
+    if (isTeamMember) {
+      return next();
+    }
+
+    // Check if user has access to the company
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Check if user is a member of the company
+    const isCompanyMember = user.companies.some(company => company.toString() === team.companyId.toString());
+    if (isCompanyMember) {
+      return next();
+    }
+
+    // Check if user has required roles in the company
+    const userRoles = user.roles
+      .filter(role => role.company.toString() === team.companyId.toString())
+      .map(role => role.role);
+    
+    const hasRequiredRole = team.requiredRoles.some(role => userRoles.includes(role));
+    if (hasRequiredRole) {
+      return next();
+    }
+
+    return res.status(403).json({ message: 'Access denied. User does not have access to this team or company' });
   } catch (error) {
     res.status(500).json({ message: 'Internal server error' });
   }

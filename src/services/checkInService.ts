@@ -4,7 +4,16 @@ import { Types } from 'mongoose';
 import { recalculateKRProgress } from '../models/CorporateOKR';
 
 class CheckInService {
-  async createCheckIn(okrId: string, userId: string, updates: Array<{ index: number; newProgress: number }>, comment?: string) {
+  async createCheckIn(
+    okrId: string, 
+    userId: string, 
+    updates: Array<{ 
+      index: number; 
+      newProgress: number;
+      newActualValue: number;
+    }>, 
+    comment?: string
+  ) {
     // Convert string IDs to ObjectId
     const okrObjectId = new Types.ObjectId(okrId);
     const userObjectId = new Types.ObjectId(userId);
@@ -23,6 +32,9 @@ class CheckInService {
       if (typeof update.newProgress !== 'number' || update.newProgress < 0 || update.newProgress > 100) {
         throw new Error('Invalid progress value');
       }
+      if (typeof update.newActualValue !== 'number') {
+        throw new Error('Invalid actual value');
+      }
     }
 
     // Create check-in record
@@ -32,6 +44,8 @@ class CheckInService {
       comment,
       updates: updates.map(update => ({
         index: update.index,
+        previousActualValue: okr.keyResults[update.index].actualValue,
+        newActualValue: update.newActualValue,
         previousProgress: okr.keyResults[update.index].progress,
         newProgress: update.newProgress
       }))
@@ -39,6 +53,7 @@ class CheckInService {
 
     // Update OKR key results
     for (const update of updates) {
+      okr.keyResults[update.index].actualValue = update.newActualValue;
       okr.keyResults[update.index].progress = update.newProgress;
     }
 

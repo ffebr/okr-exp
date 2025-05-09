@@ -1,7 +1,18 @@
-import { Types } from 'mongoose';
+import { Types, Document } from 'mongoose';
 import { OKR, IOKR } from '../models/OKR';
 import Team from '../models/Team';
 import { User } from '../models/User';
+
+interface KeyResultInput {
+  title: string;
+  description?: string;
+  metricType: 'number' | 'percentage' | 'currency' | 'custom';
+  startValue: number;
+  targetValue: number;
+  unit?: string;
+}
+
+type OKRDocument = IOKR & Document;
 
 class OKRService {
   static async createOKR(
@@ -9,10 +20,10 @@ class OKRService {
     userId: string,
     objective: string,
     description?: string,
-    keyResults?: Array<{ title: string, description?: string }>,
-    parentOKR?: string,
-    parentKRIndex?: number
-  ): Promise<IOKR> {
+    keyResults?: KeyResultInput[],
+    isFrozen?: boolean,
+    deadline?: Date
+  ): Promise<OKRDocument> {
     if (!userId) {
       throw new Error('User ID is required');
     }
@@ -47,13 +58,20 @@ class OKRService {
       createdBy: userId,
       objective,
       description,
+      deadline,
       keyResults: keyResults?.map(kr => ({
         title: kr.title,
         description: kr.description,
-        progress: 0
+        metricType: kr.metricType,
+        startValue: kr.startValue,
+        targetValue: kr.targetValue,
+        unit: kr.unit,
+        actualValue: kr.startValue,
+        progress: kr.metricType === 'percentage' ? 
+          ((kr.startValue - kr.startValue) / (kr.targetValue - kr.startValue)) * 100 : 
+          (kr.startValue / kr.targetValue) * 100
       })) || [],
-      parentOKR: parentOKR ? new Types.ObjectId(parentOKR) : undefined,
-      parentKRIndex
+      isFrozen: isFrozen || false
     });
 
     await okr.save();
@@ -92,7 +110,15 @@ class OKRService {
     return okrs;
   }
 
-  static async addKeyResult(okrId: string, title: string, description?: string): Promise<IOKR> {
+  static async addKeyResult(
+    okrId: string, 
+    title: string, 
+    description?: string,
+    metricType: 'number' | 'percentage' | 'currency' | 'custom' = 'number',
+    startValue: number = 0,
+    targetValue: number = 100,
+    unit?: string
+  ): Promise<IOKR> {
     try {
       if (!okrId) {
         throw new Error('OKR ID is required');
@@ -110,6 +136,11 @@ class OKRService {
       const newKeyResult = {
         title,
         description,
+        metricType,
+        startValue,
+        targetValue,
+        unit,
+        actualValue: startValue,
         progress: 0
       };
 
@@ -132,20 +163,13 @@ class OKRService {
     }
   }
 
-  static async updateOKRStatus(okrId: string, status: 'draft' | 'active' | 'done'): Promise<IOKR> {
-    console.log('updateOKRStatus', okrId, status);
+  static async updateOKRFreezeStatus(okrId: string, isFrozen: boolean): Promise<IOKR> {
     try {
       if (!okrId) {
         throw new Error('OKR ID is required');
       }
 
-      if (!['draft', 'active', 'done'].includes(status)) {
-        throw new Error('Invalid status value');
-      }
-
-      console.log('Looking for OKR with ID:', okrId);
       const okr = await OKR.findById(new Types.ObjectId(okrId));
-      console.log('Found OKR:', okr);
       if (!okr) {
         throw new Error('OKR not found');
       }
@@ -156,17 +180,17 @@ class OKRService {
         throw new Error('User not found');
       }
 
-      // Update status
-      okr.status = status;
+      // Update freeze status
+      okr.isFrozen = isFrozen;
       await okr.save();
 
       return okr;
     } catch (error) {
-      console.error('Error in updateOKRStatus:', error);
+      console.error('Error in updateOKRFreezeStatus:', error);
       if (error instanceof Error) {
         throw error;
       }
-      throw new Error('Unknown error occurred while updating OKR status');
+      throw new Error('Unknown error occurred while updating OKR freeze status');
     }
   }
 
