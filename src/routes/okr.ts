@@ -4,6 +4,9 @@ import { AuthRequest } from '../middleware/auth';
 import OKRService from '../services/okrService';
 import CorporateOKRService from '../services/corporateOKRService';
 import { OKR, IOKR } from '../models/OKR';
+import { Document } from 'mongoose';
+
+type OKRDocument = IOKR & Document;
 
 const router = express.Router();
 
@@ -32,19 +35,38 @@ router.use(auth);
  *             type: object
  *             required:
  *               - objective
+ *               - keyResults
  *             properties:
  *               objective:
  *                 type: string
  *               description:
  *                 type: string
+ *               deadline:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Deadline must be after creation date
  *               keyResults:
  *                 type: array
  *                 items:
  *                   type: object
+ *                   required:
+ *                     - title
+ *                     - metricType
+ *                     - startValue
+ *                     - targetValue
  *                   properties:
  *                     title:
  *                       type: string
  *                     description:
+ *                       type: string
+ *                     metricType:
+ *                       type: string
+ *                       enum: [number, percentage, currency, custom]
+ *                     startValue:
+ *                       type: number
+ *                     targetValue:
+ *                       type: number
+ *                     unit:
  *                       type: string
  *               parentOKR:
  *                 type: string
@@ -52,6 +74,8 @@ router.use(auth);
  *               parentKRIndex:
  *                 type: integer
  *                 description: Index of the key result in the corporate OKR
+ *               isFrozen:
+ *                 type: boolean
  *     responses:
  *       201:
  *         description: OKR created successfully
@@ -67,29 +91,75 @@ router.use(auth);
 router.post('/teams/:teamId/okrs', hasTeamAccess, async (req: AuthRequest, res: Response) => {
   try {
     const { teamId } = req.params;
-    const { objective, description, keyResults, parentOKR, parentKRIndex } = req.body;
+    const { 
+      objective, 
+      description, 
+      keyResults, 
+      parentOKR, 
+      parentKRIndex,
+      isFrozen,
+      deadline 
+    } = req.body;
     const userId = req.user.id;
 
-    // Создаем OKR без привязки к корпоративному OKR
-    const okr: IOKR = await OKRService.createOKR(
+    // Validate keyResults structure
+    if (!Array.isArray(keyResults)) {
+      return res.status(400).json({ message: 'keyResults must be an array' });
+    }
+
+    // Validate deadline if provided
+    if (deadline !== undefined) {
+      const deadlineDate = new Date(deadline);
+      if (isNaN(deadlineDate.getTime())) {
+        return res.status(400).json({ message: 'Invalid deadline date format' });
+      }
+      if (deadlineDate <= new Date()) {
+        return res.status(400).json({ message: 'Deadline must be in the future' });
+      }
+    }
+
+    // Validate each key result
+    for (const kr of keyResults) {
+      if (!kr.title || !kr.metricType || kr.startValue === undefined || kr.targetValue === undefined) {
+        return res.status(400).json({ 
+          message: 'Each key result must have title, metricType, startValue, and targetValue' 
+        });
+      }
+      if (!['number', 'percentage', 'currency', 'custom'].includes(kr.metricType)) {
+        return res.status(400).json({ 
+          message: 'Invalid metricType. Must be one of: number, percentage, currency, custom' 
+        });
+      }
+      // Validate unit if provided
+      if (kr.unit !== undefined && typeof kr.unit !== 'string') {
+        return res.status(400).json({ 
+          message: 'Unit must be a string if provided' 
+        });
+      }
+    }
+
+    // Create OKR with new fields
+    const okr = await OKRService.createOKR(
       teamId,
       userId,
       objective,
       description,
-      keyResults
+      keyResults,
+      isFrozen,
+      deadline
     );
 
-    // Если указаны parentOKR и parentKRIndex, привязываем OKR к корпоративному
+    // If parentOKR and parentKRIndex are provided, link to corporate OKR
     if (parentOKR && parentKRIndex !== undefined) {
       try {
         await CorporateOKRService.linkTeamOKRToCorporate(
-          okr._id.toString(),
+          okr._id?.toString() || '',
           parentOKR,
           parentKRIndex,
           userId
         );
       } catch (error) {
-        // Если не удалось привязать, удаляем созданный OKR
+        // If linking fails, delete the created OKR
         await OKR.deleteOne({ _id: okr._id });
         
         if (error instanceof Error) {
@@ -107,8 +177,8 @@ router.post('/teams/:teamId/okrs', hasTeamAccess, async (req: AuthRequest, res: 
       }
     }
 
-    // Получаем обновленный OKR с привязкой
-    const updatedOKR = await OKRService.getOKRById(okr._id.toString());
+    // Get updated OKR with link
+    const updatedOKR = await OKRService.getOKRById(okr._id?.toString() || '');
 
     res.status(201).json({
       message: 'OKR created successfully',
@@ -165,6 +235,15 @@ router.post('/teams/:teamId/okrs', hasTeamAccess, async (req: AuthRequest, res: 
  *                         type: string
  *                       description:
  *                         type: string
+ *                       parentOKR:
+ *                         type: string
+ *                       parentKRIndex:
+ *                         type: number
+ *                       deadline:
+ *                         type: string
+ *                         format: date-time
+ *                       isFrozen:
+ *                         type: boolean
  *                       keyResults:
  *                         type: array
  *                         items:
@@ -174,16 +253,30 @@ router.post('/teams/:teamId/okrs', hasTeamAccess, async (req: AuthRequest, res: 
  *                               type: string
  *                             description:
  *                               type: string
+ *                             metricType:
+ *                               type: string
+ *                               enum: [number, percentage, currency, custom]
+ *                             startValue:
+ *                               type: number
+ *                             targetValue:
+ *                               type: number
+ *                             unit:
+ *                               type: string
+ *                             actualValue:
+ *                               type: number
  *                             progress:
  *                               type: number
  *                       progress:
  *                         type: number
  *                       status:
  *                         type: string
+ *                         enum: [draft, active, done]
  *                       createdAt:
  *                         type: string
+ *                         format: date-time
  *                       updatedAt:
  *                         type: string
+ *                         format: date-time
  *       401:
  *         description: Unauthorized
  *       404:
@@ -277,96 +370,6 @@ router.post('/okrs/:okrId/key-results', canManageOKR, async (req: AuthRequest, r
 
 /**
  * @swagger
- * /api/okrs/{okrId}/status:
- *   patch:
- *     summary: Update OKR status
- *     description: Update the status of an OKR (draft, active, done)
- *     tags: [OKRs]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: okrId
- *         required: true
- *         schema:
- *           type: string
- *         description: ID of the OKR to update
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - status
- *             properties:
- *               status:
- *                 type: string
- *                 enum: [draft, active, done]
- *                 description: New status for the OKR
- *     responses:
- *       200:
- *         description: OKR status updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                 okr:
- *                   $ref: '#/components/schemas/OKR'
- *       400:
- *         description: Invalid status value
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Invalid status value. Must be one of: draft, active, done"
- *       401:
- *         description: Unauthorized
- *       403:
- *         description: User does not have permission to update this OKR
- *       404:
- *         description: OKR not found
- */
-router.patch('/okrs/:okrId/status', canManageOKR, async (req: AuthRequest, res: Response) => {
-  console.log('PATCH /okrs/:okrId/status called with:', req.params, req.body);
-  try {
-    const { okrId } = req.params;
-    const { status } = req.body;
-
-    // Validate status value
-    if (!['draft', 'active', 'done'].includes(status)) {
-      return res.status(400).json({
-        message: 'Invalid status value. Must be one of: draft, active, done'
-      });
-    }
-
-    const okr = await OKRService.updateOKRStatus(okrId, status);
-    res.json({
-      message: 'OKR status updated successfully',
-      okr
-    });
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === 'OKR not found') {
-        return res.status(404).json({ message: error.message });
-      }
-      if (error.message === 'User does not have permission to update this OKR') {
-        return res.status(403).json({ message: error.message });
-      }
-    }
-    console.error('Update OKR status error:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
-/**
- * @swagger
  * /api/okrs/{okrId}:
  *   get:
  *     summary: Get OKR by ID
@@ -386,7 +389,82 @@ router.patch('/okrs/:okrId/status', canManageOKR, async (req: AuthRequest, res: 
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/OKR'
+ *               type: object
+ *               properties:
+ *                 _id:
+ *                   type: string
+ *                 team:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                 createdBy:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                 objective:
+ *                   type: string
+ *                 description:
+ *                   type: string
+ *                 parentOKR:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                     objective:
+ *                       type: string
+ *                     company:
+ *                       type: object
+ *                       properties:
+ *                         _id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                 parentKRIndex:
+ *                   type: number
+ *                 deadline:
+ *                   type: string
+ *                   format: date-time
+ *                 isFrozen:
+ *                   type: boolean
+ *                 keyResults:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       title:
+ *                         type: string
+ *                       description:
+ *                         type: string
+ *                       metricType:
+ *                         type: string
+ *                         enum: [number, percentage, currency, custom]
+ *                       startValue:
+ *                         type: number
+ *                       targetValue:
+ *                         type: number
+ *                       unit:
+ *                         type: string
+ *                       actualValue:
+ *                         type: number
+ *                       progress:
+ *                         type: number
+ *                 progress:
+ *                   type: number
+ *                 status:
+ *                   type: string
+ *                   enum: [draft, active, done]
+ *                 createdAt:
+ *                   type: string
+ *                   format: date-time
+ *                 updatedAt:
+ *                   type: string
+ *                   format: date-time
  *       401:
  *         description: Unauthorized
  *       403:
@@ -478,6 +556,69 @@ router.post('/okrs/:okrId/link-to-corporate', canManageOKR, async (req: AuthRequ
       }
     }
     console.error('Link OKR error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+/**
+ * @swagger
+ * /api/okrs/{okrId}/freeze:
+ *   patch:
+ *     summary: Freeze or unfreeze an OKR
+ *     tags: [OKRs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: okrId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - isFrozen
+ *             properties:
+ *               isFrozen:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: OKR freeze status updated successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: User does not have permission to manage this OKR
+ *       404:
+ *         description: OKR not found
+ */
+router.patch('/okrs/:okrId/freeze', canManageOKR, async (req: AuthRequest, res: Response) => {
+  try {
+    const { okrId } = req.params;
+    const { isFrozen } = req.body;
+
+    if (typeof isFrozen !== 'boolean') {
+      return res.status(400).json({ message: 'isFrozen must be a boolean value' });
+    }
+
+    const okr = await OKRService.updateOKRFreezeStatus(okrId, isFrozen);
+    res.json({
+      message: `OKR ${isFrozen ? 'frozen' : 'unfrozen'} successfully`,
+      okr
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'OKR not found') {
+        return res.status(404).json({ message: error.message });
+      }
+      if (error.message === 'User does not have permission to manage this OKR') {
+        return res.status(403).json({ message: error.message });
+      }
+    }
+    console.error('Update OKR freeze status error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });

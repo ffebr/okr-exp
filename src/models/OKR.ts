@@ -1,111 +1,104 @@
-import { Schema, model, Types, Document, Model } from 'mongoose';
-import { CorporateOKR } from './CorporateOKR';
-import { recalculateKRProgress } from './CorporateOKR';
+// OKR.ts  
+import { Schema, model, Types, Document } from 'mongoose';
+import { CorporateOKR, recalculateKRProgress } from './CorporateOKR';
 
-const KeyResultSchema = new Schema({
-  title: { type: String, required: true },
-  description: String,
-  progress: {
-    type: Number,
-    min: 0,
-    max: 100,
-    default: 0
-  }
-}, { _id: false });
-
-export interface IOKR extends Document {
-  _id: Types.ObjectId;
-  team: Types.ObjectId;
-  createdBy: Types.ObjectId;
-  objective: string;
+export interface KeyResult {
+  title:        string;
   description?: string;
-  parentOKR?: Types.ObjectId;
-  parentKRIndex?: number;
-  keyResults: Array<{
-    title: string;
-    description?: string;
-    progress: number;
-  }>;
-  progress: number;
-  status: 'draft' | 'active' | 'done';
+  metricType:   'number'|'percentage'|'currency'|'custom';
+  startValue:   number;
+  targetValue:  number;
+  unit?:        string;
+  actualValue:  number;
+  progress:     number; // 0–100
 }
 
-const OKRSchema = new Schema({
-  team: { type: Types.ObjectId, ref: 'Team', required: true },
-  createdBy: { type: Types.ObjectId, ref: 'User', required: true },
-  objective: { type: String, required: true },
-  description: String,
+export interface IOKR extends Document {
+  team:         Types.ObjectId;
+  createdBy:    Types.ObjectId;
+  objective:    string;
+  description?: string;
+  parentOKR?:   Types.ObjectId;
+  parentKRIndex?: number;
+  deadline?:    Date;
+  isFrozen:     boolean;
+  keyResults:   KeyResult[];
+  progress:     number;
+  createdAt:    Date;
+  updatedAt:    Date;
+}
 
-  parentOKR:       { type: Types.ObjectId, ref: 'CorporateOKR' },
-  parentKRIndex:   { type: Number },
+const KeyResultSchema = new Schema<KeyResult>({
+  title:        { type: String, required: true },
+  description:  String,
+  metricType:   { type: String, enum: ['number','percentage','currency','custom'], required: true },
+  startValue:   { type: Number, default: 0 },
+  targetValue:  { type: Number, required: true },
+  unit:         { type: String, default: '' },
+  actualValue:  { type: Number, default: 0 },
+  progress:     { type: Number, min: 0, max: 100, default: 0 }
+}, { _id: false });
 
-  keyResults: {
-    type: [KeyResultSchema],
-  },
-
-  progress: {
-    type: Number,
-    min: 0,
-    max: 100,
-    default: 0
-  },
-
-  status: {
-    type: String,
-    enum: ['draft', 'active', 'done'],
-    default: 'active'
-  }
+const OKRSchema = new Schema<IOKR>({
+  team:         { type: Schema.Types.ObjectId, ref: 'Team', required: true },
+  createdBy:    { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  objective:    { type: String, required: true },
+  description:  { type: String },
+  parentOKR:    { type: Types.ObjectId, ref: 'CorporateOKR' },
+  parentKRIndex:{ type: Number },
+  deadline: {
+      type: Date,
+      validate: {
+        validator(this: IOKR, v: Date) {
+          return !this.createdAt || v > this.createdAt;
+        },
+        message: 'Deadline must be after creation date'
+      }
+    },
+  isFrozen:     { type: Boolean, default: false },
+  keyResults:   { type: [KeyResultSchema], required: true },
+  progress:     { type: Number, min: 0, max: 100, default: 0 },
+  createdAt:    { type: Date, default: Date.now },
+  updatedAt:    { type: Date, default: Date.now }
 }, { timestamps: true });
 
-// Middleware: пересчитываем общий прогресс по keyResults
+// Пересчёт прогресса командного OKR и проброс в корпоративный KR
 OKRSchema.pre('save', async function(this: IOKR, next) {
-  try {
-    if (this.keyResults.length > 0) {
-      const total = this.keyResults.reduce((sum, kr) => sum + (kr.progress || 0), 0);
-      this.progress = Math.round(total / this.keyResults.length);
+  // 1) пересчитываем каждый KR по actualValue
+  this.keyResults.forEach(kr => {
+    let raw;
+    if (kr.metricType === 'percentage') {
+      // Для процентных метрик считаем прогресс как разницу между текущим и начальным значением
+      // относительно разницы между целевым и начальным значением
+      const span = kr.targetValue - kr.startValue;
+      const currentProgress = kr.actualValue - kr.startValue;
+      raw = span === 0 ? 100 : (currentProgress / span) * 100;
     } else {
-      this.progress = 0;
+      // Для остальных метрик считаем как раньше
+      const span = kr.targetValue - kr.startValue;
+      raw = span === 0 ? 100 : ((kr.actualValue - kr.startValue) / span) * 100;
     }
+    kr.progress = Math.min(100, Math.max(0, Math.round(raw)));
+  });
+  // 2) общий прогресс команды
+  const total = this.keyResults.reduce((s, k) => s + k.progress, 0);
+  this.progress = this.keyResults.length
+    ? Math.round(total / this.keyResults.length)
+    : 0;
 
-    // Если OKR привязан к корпоративному KR, обновляем его прогресс
-    if (this.parentOKR && this.parentKRIndex !== undefined) {
-      const corporateOKR = await CorporateOKR.findById(this.parentOKR);
-      if (corporateOKR && corporateOKR.keyResults[this.parentKRIndex]) {
-        // Находим все OKR, привязанные к этому KR
-        const linkedOKRs = await OKR.find({
-          parentOKR: this.parentOKR,
-          parentKRIndex: this.parentKRIndex
-        });
-
-        // Считаем средний прогресс всех привязанных OKR
-        const totalProgress = linkedOKRs.reduce((sum: number, okr: IOKR) => sum + okr.progress, 0);
-        const averageProgress = Math.round(totalProgress / linkedOKRs.length);
-
-        // Обновляем прогресс корпоративного KR
-        if (corporateOKR.keyResults[this.parentKRIndex]) {
-          corporateOKR.keyResults[this.parentKRIndex].progress = averageProgress;
-          await corporateOKR.save();
-        }
-      }
-    }
-
-    // Middleware для обновления прогресса корпоративного KR при изменении прогресса OKR
-    if (this.isModified('progress') && this.parentOKR && this.parentKRIndex !== undefined) {
-      await recalculateKRProgress(this.parentKRIndex, this.parentOKR);
-    }
-
-    next();
-  } catch (error) {
-    console.error('Error in OKR save middleware:', error);
-    next(error as Error);
+  // 3) если привязано к CorporateOKR → пересчитываем его KR
+  if (this.parentOKR != null && this.parentKRIndex != null) {
+    await recalculateKRProgress(this.parentKRIndex, this.parentOKR);
   }
+
+  next();
 });
 
 OKRSchema.pre('findOneAndUpdate', async function(next) {
-  const update = this.getUpdate();
-  if (update && '$set' in update && (update.$set as any).progress !== undefined) {
+  const upd = this.getUpdate() as any;
+  if (upd?.$set?.keyResults || upd?.$set?.progress) {
     const okr = await this.model.findOne(this.getQuery());
-    if (okr && okr.parentOKR && okr.parentKRIndex !== undefined) {
+    if (okr?.parentOKR != null && okr.parentKRIndex != null) {
       await recalculateKRProgress(okr.parentKRIndex, okr.parentOKR);
     }
   }

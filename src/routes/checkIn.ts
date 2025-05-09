@@ -28,17 +28,22 @@ router.use(auth);
  *             properties:
  *               okrId:
  *                 type: string
+ *                 description: ID of the OKR to create check-in for
  *               updates:
  *                 type: array
  *                 items:
  *                   type: object
  *                   required:
  *                     - index
+ *                     - newActualValue
  *                     - newProgress
  *                   properties:
  *                     index:
  *                       type: number
- *                       description: Index of the key result to update
+ *                       description: Index of the key result in OKR.keyResults array
+ *                     newActualValue:
+ *                       type: number
+ *                       description: New actual value for the key result
  *                     newProgress:
  *                       type: number
  *                       minimum: 0
@@ -63,12 +68,19 @@ router.use(auth);
  *                   type: string
  *                 comment:
  *                   type: string
+ *                 date:
+ *                   type: string
+ *                   format: date-time
  *                 updates:
  *                   type: array
  *                   items:
  *                     type: object
  *                     properties:
  *                       index:
+ *                         type: number
+ *                       previousActualValue:
+ *                         type: number
+ *                       newActualValue:
  *                         type: number
  *                       previousProgress:
  *                         type: number
@@ -81,7 +93,19 @@ router.use(auth);
  *                   type: string
  *                   format: date-time
  *       400:
- *         description: Invalid key result index or progress value
+ *         description: Invalid request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   enum:
+ *                     - Invalid key result index
+ *                     - Invalid progress value
+ *                     - Cannot create check-in: OKR is frozen.
+ *                     - Cannot create check-in: OKR progress is already 100%.
  *       401:
  *         description: Unauthorized
  *       403:
@@ -105,6 +129,12 @@ router.post('/', hasOKRAccess, async (req: AuthRequest, res: Response) => {
         return res.status(403).json({ message: error.message });
       }
       if (error.message === 'Invalid key result index' || error.message === 'Invalid progress value') {
+        return res.status(400).json({ message: error.message });
+      }
+      if (error.message === 'Cannot create check-in: OKR is frozen.') {
+        return res.status(400).json({ message: error.message });
+      }
+      if (error.message === 'Cannot create check-in: OKR progress is already 100%.') {
         return res.status(400).json({ message: error.message });
       }
     }
