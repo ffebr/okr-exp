@@ -7,7 +7,12 @@ const CompanySchema = new Schema({
     // Роли, определённые внутри этой компании
     roles: [{
       name: { type: String, required: true },
-      description: String
+      description: String,
+      permissions: {
+        manageTeams: { type: Boolean, default: false },
+        manageUsers: { type: Boolean, default: false },
+        manageCompanyOKRs: { type: Boolean, default: false }
+      }
     }]
   }, { timestamps: true });
   
