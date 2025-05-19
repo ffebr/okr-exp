@@ -22,7 +22,6 @@ export interface CorporateOKRDocument extends Document {
   isFrozen:   boolean;
   keyResults: CorporateKR[];
   progress:   number; // 0–100
-  status:     'draft'|'active'|'done';
   createdAt:  Date;
   updatedAt:  Date;
 }
@@ -57,7 +56,6 @@ const CorporateOKRSchema = new Schema<CorporateOKRDocument>({
   isFrozen:    { type: Boolean, default: false },
   keyResults:  { type: [CorporateKRSchema], required: true },
   progress:    { type: Number, min: 0, max: 100, default: 0 },
-  status:      { type: String, enum: ['draft','active','done'], default: 'active' },
   createdAt:   { type: Date, default: Date.now },
   updatedAt:   { type: Date, default: Date.now }
 }, { timestamps: true });
@@ -65,6 +63,7 @@ const CorporateOKRSchema = new Schema<CorporateOKRDocument>({
 // Функция агрегации actualValue и пересчёта progress по связям команд → CorporateOKR
 export async function recalculateKRProgress(krIndex: number, corporateOKRId: Types.ObjectId) {
   const { OKR } = await import('./OKR');
+  const { CorporateOKRStats } = await import('./CorporateOKRStats');
   const CorporateOKR = model('CorporateOKR');
 
   const linkedOKRs = await OKR.find({
@@ -73,7 +72,6 @@ export async function recalculateKRProgress(krIndex: number, corporateOKRId: Typ
   });
 
   if (linkedOKRs.length > 0) {
-    // Normalize progress values to ensure they stay within 0-100 range and are valid numbers
     const normalizedProgresses = linkedOKRs.map(okr => {
       const progress = okr.progress || 0;
       return Math.min(Math.max(Number(progress), 0), 100);
@@ -92,7 +90,6 @@ export async function recalculateKRProgress(krIndex: number, corporateOKRId: Typ
       // Получаем обновленный документ для пересчета общего прогресса
       const corporateOKR = await CorporateOKR.findById(corporateOKRId);
       if (corporateOKR && corporateOKR.keyResults.length > 0) {
-        // Считаем средний прогресс по всем KR, нормализуя значения
         const totalKRProgress = corporateOKR.keyResults.reduce((sum: number, kr: { progress: number }) => {
           const progress = kr.progress || 0;
           const normalizedProgress = Math.min(Math.max(Number(progress), 0), 100);
@@ -105,6 +102,52 @@ export async function recalculateKRProgress(krIndex: number, corporateOKRId: Typ
           { _id: corporateOKRId },
           { $set: { progress: overallProgress } }
         );
+
+        // Обновляем статистику
+        const stats = await CorporateOKRStats.findOne({ corporateOKR: corporateOKRId });
+        if (stats) {
+          stats.progress = overallProgress;
+          stats.isFrozen = corporateOKR.isFrozen;
+          stats.keyResultsStats = corporateOKR.keyResults.map((kr: CorporateKR, index: number) => ({
+            index,
+            title: kr.title,
+            progress: kr.progress,
+            actualValue: kr.actualValue,
+            targetValue: kr.targetValue,
+            metricType: kr.metricType,
+            unit: kr.unit,
+            teams: kr.teams || []
+          }));
+
+          // Добавляем запись в историю прогресса
+          stats.progressHistory.push({
+            date: new Date(),
+            value: overallProgress,
+            keyResultsProgress: corporateOKR.keyResults.map((kr: CorporateKR, index: number) => ({
+              index,
+              value: kr.progress
+            }))
+          });
+
+          // Обновляем статус
+          if (overallProgress === 100) {
+            stats.status = 'completed';
+            stats.completedAt = new Date();
+          } else if (overallProgress >= 75) {
+            stats.status = 'on_track';
+          } else if (overallProgress < 50 && corporateOKR.deadline instanceof Date) {
+            const daysUntilDeadline = Math.ceil((corporateOKR.deadline.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+            if (daysUntilDeadline <= 5) {
+              stats.status = 'at_risk';
+            } else {
+              stats.status = 'on_track';
+            }
+          } else {
+            stats.status = 'on_track';
+          }
+
+          await stats.save();
+        }
       }
     }
   }
@@ -152,30 +195,184 @@ CorporateOKRSchema.pre('findOneAndUpdate', async function(next) {
   next();
 });
 
+// Middleware для синхронизации статуса заморозки
+CorporateOKRSchema.pre('save', async function(this: CorporateOKRDocument, next) {
+  if (this.isModified('isFrozen')) {
+    const { CorporateOKRStats } = await import('./CorporateOKRStats');
+    const { OKR } = await import('./OKR');
+    
+    // Обновляем статистику
+    const stats = await CorporateOKRStats.findOne({ corporateOKR: this._id });
+    if (stats) {
+      stats.isFrozen = this.isFrozen;
+      await stats.save();
+    }
+
+    // Обновляем все связанные командные OKR
+    await OKR.updateMany(
+      { parentOKR: this._id },
+      { $set: { isFrozen: this.isFrozen } }
+    );
+  }
+  next();
+});
+
+// Middleware для синхронизации при обновлении через findOneAndUpdate
+CorporateOKRSchema.pre('findOneAndUpdate', async function(next) {
+  const update = this.getUpdate() as { $set?: { isFrozen?: boolean } };
+  if (update?.$set?.isFrozen !== undefined) {
+    const { CorporateOKRStats } = await import('./CorporateOKRStats');
+    const { OKR } = await import('./OKR');
+    
+    const doc = await this.model.findOne(this.getQuery());
+    if (!doc) return next();
+
+    // Обновляем статистику
+    const stats = await CorporateOKRStats.findOne({ corporateOKR: doc._id });
+    if (stats) {
+      stats.isFrozen = update.$set.isFrozen;
+      await stats.save();
+    }
+
+    // Обновляем все связанные командные OKR
+    await OKR.updateMany(
+      { parentOKR: doc._id },
+      { $set: { isFrozen: update.$set.isFrozen } }
+    );
+  }
+  next();
+});
+
 // после сохранения, если сменилось isFrozen — каскадим на все team OKR
 CorporateOKRSchema.post('save', async function(this: CorporateOKRDocument) {
-    if (this.isModified('isFrozen')) {
-      console.log(`CorporateOKR ${this._id} isFrozen changed to: ${this.isFrozen}`);
+    try {
+      const { CorporateOKRStats } = await import('./CorporateOKRStats');
       const { OKR } = await import('./OKR');
-      const result = await OKR.updateMany(
-        { parentOKR: this._id },
-        { $set: { isFrozen: this.isFrozen } }
-      );
-      console.log(`Updated ${result.modifiedCount} team OKRs to isFrozen: ${this.isFrozen}`);
+      const { OKRStats } = await import('./OKRStats');
+      
+      // Получаем все связанные командные OKR
+      const teamOKRs = await OKR.find({ parentOKR: this._id });
+      
+      // Ищем существующую статистику
+      let stats = await CorporateOKRStats.findOne({ corporateOKR: this._id });
+      
+      if (!stats) {
+        // Создаем новую статистику при первом сохранении
+        stats = new CorporateOKRStats({
+          corporateOKR: this._id,
+          company: this.company,
+          progress: this.progress,
+          keyResultsStats: this.keyResults.map((kr, index) => ({
+            index,
+            title: kr.title,
+            progress: kr.progress,
+            actualValue: kr.actualValue,
+            targetValue: kr.targetValue,
+            metricType: kr.metricType,
+            unit: kr.unit,
+            teams: kr.teams || []
+          })),
+          isFrozen: this.isFrozen,
+          deadline: this.deadline,
+          totalTeamOKRs: teamOKRs.length,
+          activeTeamOKRs: teamOKRs.filter(okr => !okr.isFrozen).length,
+          frozenTeamOKRs: teamOKRs.filter(okr => okr.isFrozen).length,
+          involvedTeams: this.keyResults.flatMap(kr => kr.teams || [])
+        });
+      } else {
+        // Обновляем существующую статистику
+        if (this.isModified('progress') || this.isModified('keyResults')) {
+          stats.progress = this.progress;
+          stats.keyResultsStats = this.keyResults.map((kr, index) => ({
+            index,
+            title: kr.title,
+            progress: kr.progress,
+            actualValue: kr.actualValue,
+            targetValue: kr.targetValue,
+            metricType: kr.metricType,
+            unit: kr.unit,
+            teams: kr.teams || []
+          }));
+
+          // Добавляем запись в историю прогресса
+          stats.progressHistory.push({
+            date: new Date(),
+            value: this.progress,
+            keyResultsProgress: this.keyResults.map((kr, index) => ({
+              index,
+              value: kr.progress
+            }))
+          });
+        }
+
+        if (this.isModified('isFrozen')) {
+          stats.isFrozen = this.isFrozen;
+          // Обновляем все связанные OKR
+          const result = await OKR.updateMany(
+            { parentOKR: this._id },
+            { $set: { isFrozen: this.isFrozen } }
+          );
+
+          // Обновляем статистику для всех затронутых OKR
+          const affectedOKRs = await OKR.find({ parentOKR: this._id });
+          for (const okr of affectedOKRs) {
+            const okrStats = await OKRStats.findOne({ okr: okr._id });
+            if (okrStats) {
+              okrStats.isFrozen = this.isFrozen;
+              await okrStats.save();
+            }
+          }
+        }
+
+        stats.deadline = this.deadline;
+        stats.totalTeamOKRs = teamOKRs.length;
+        stats.activeTeamOKRs = teamOKRs.filter(okr => !okr.isFrozen).length;
+        stats.frozenTeamOKRs = teamOKRs.filter(okr => okr.isFrozen).length;
+        const teams = this.keyResults.flatMap(kr => kr.teams || []);
+        await CorporateOKRStats.updateOne(
+          { _id: stats._id },
+          { $set: { involvedTeams: teams } }
+        );
+      }
+
+      await stats.save();
+    } catch (error) {
+      console.error('Error updating CorporateOKRStats:', error);
+      throw error;
     }
 });
 
 CorporateOKRSchema.post('findOneAndUpdate', async function() {
-    const doc = await this.model.findOne(this.getQuery());
-    const update = this.getUpdate() as { $set?: { isFrozen?: boolean } };
-    if (doc && update?.$set?.isFrozen !== undefined) {
-        console.log(`CorporateOKR ${doc._id} isFrozen changed to: ${update.$set.isFrozen}`);
-        const { OKR } = await import('./OKR');
-        const result = await OKR.updateMany(
-            { parentOKR: doc._id },
-            { $set: { isFrozen: update.$set.isFrozen } }
-        );
-        console.log(`Updated ${result.modifiedCount} team OKRs to isFrozen: ${update.$set.isFrozen}`);
+    try {
+        const doc = await this.model.findOne(this.getQuery());
+        if (!doc) return;
+
+        const update = this.getUpdate() as { $set?: { isFrozen?: boolean } };
+        if (update?.$set?.isFrozen !== undefined) {
+            const { OKR } = await import('./OKR');
+            const { OKRStats } = await import('./OKRStats');
+            
+            // Обновляем все связанные OKR
+            const result = await OKR.updateMany(
+                { parentOKR: doc._id },
+                { $set: { isFrozen: update.$set.isFrozen } }
+            );
+
+            // Обновляем статистику для всех затронутых OKR
+            const affectedOKRs = await OKR.find({ parentOKR: doc._id });
+            for (const okr of affectedOKRs) {
+                const okrStats = await OKRStats.findOne({ okr: okr._id });
+                if (okrStats) {
+                    okrStats.isFrozen = update.$set.isFrozen;
+                    await okrStats.save();
+                }
+            }
+
+            console.log(`Updated ${result.modifiedCount} team OKRs and their stats to isFrozen: ${update.$set.isFrozen}`);
+        }
+    } catch (error) {
+        console.error('Error in findOneAndUpdate middleware:', error);
+        throw error;
     }
 });
 

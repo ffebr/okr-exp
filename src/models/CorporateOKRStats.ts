@@ -3,11 +3,7 @@ import { Schema, model, Types } from 'mongoose';
 const CorporateOKRStatsSchema = new Schema({
   corporateOKR: { type: Types.ObjectId, ref: 'CorporateOKR', required: true, unique: true },
   company: { type: Types.ObjectId, ref: 'Company', required: true },
-
-  // Общий прогресс
   progress: { type: Number, min: 0, max: 100 },
-
-  // Детальная статистика по Key Results
   keyResultsStats: [{
     index: { type: Number, required: true },
     title: { type: String, required: true },
@@ -18,8 +14,6 @@ const CorporateOKRStatsSchema = new Schema({
     unit: String,
     teams: [{ type: Types.ObjectId, ref: 'Team' }]
   }],
-
-  // Динамика прогресса
   progressHistory: [{
     date: { type: Date, required: true },
     value: { type: Number, required: true },
@@ -28,22 +22,15 @@ const CorporateOKRStatsSchema = new Schema({
       value: { type: Number, required: true }
     }]
   }],
-
-  // Активность команд
   totalTeamOKRs: { type: Number, default: 0 },
   activeTeamOKRs: { type: Number, default: 0 },
   frozenTeamOKRs: { type: Number, default: 0 },
   lastTeamUpdate: { type: Date },
-
-  // Вовлеченность команд
   involvedTeams: [{ type: Types.ObjectId, ref: 'Team' }],
-  activeTeams: [{ type: Types.ObjectId, ref: 'Team' }], // Команды с активными OKR за последние 30 дней
-
-  // Статус и временные метки
   status: { 
     type: String, 
-    enum: ['draft', 'active', 'done'],
-    default: 'active'
+    enum: ['on_track', 'at_risk', 'completed'],
+    default: 'on_track'
   },
   isFrozen: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
@@ -57,14 +44,36 @@ CorporateOKRStatsSchema.index({ company: 1, createdAt: -1 });
 CorporateOKRStatsSchema.index({ status: 1 });
 CorporateOKRStatsSchema.index({ isFrozen: 1 });
 
-// Middleware для синхронизации с CorporateOKR
+// Middleware для обновления статистики при изменении прогресса
 CorporateOKRStatsSchema.pre('save', async function(next) {
-  if (this.isModified('isFrozen')) {
-    const { CorporateOKR } = await import('./CorporateOKR');
-    await CorporateOKR.findByIdAndUpdate(
-      this.corporateOKR,
-      { $set: { isFrozen: this.isFrozen } }
-    );
+  if (this.isModified('progress') && typeof this.progress === 'number') {
+    // Обновляем статус на основе прогресса
+    if (this.progress === 100) {
+      this.status = 'completed';
+      this.completedAt = new Date();
+    } else if (this.progress >= 75) {
+      this.status = 'on_track';
+    } else if (this.progress < 50 && this.deadline instanceof Date) {
+      // Проверяем, осталось ли до дедлайна 5 дней или меньше
+      const daysUntilDeadline = Math.ceil((this.deadline.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+      if (daysUntilDeadline <= 5) {
+        this.status = 'at_risk';
+      } else {
+        this.status = 'on_track';
+      }
+    } else {
+      this.status = 'on_track';
+    }
+
+    // Добавляем запись в историю прогресса
+    this.progressHistory.push({
+      date: new Date(),
+      value: this.progress,
+      keyResultsProgress: this.keyResultsStats.map(kr => ({
+        index: kr.index,
+        value: kr.progress
+      }))
+    });
   }
   next();
 });

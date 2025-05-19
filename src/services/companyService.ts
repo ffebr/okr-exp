@@ -4,39 +4,29 @@ import { Types } from 'mongoose';
 import Team from '../models/Team';
 
 export class CompanyService {
-  // Create a new company
   static async createCompany(name: string, userId: string) {
     const company = new Company({
       name,
       createdBy: userId,
       roles: []
     });
-
     await company.save();
-
-    // Add company to user's companies array
     await User.findByIdAndUpdate(
       userId,
       { $push: { companies: company._id } }
     );
-
     return company;
   }
 
-  // Add a new role to company
   static async addRole(companyId: string, name: string, description?: string) {
     const company = await Company.findById(companyId);
     if (!company) {
       throw new Error('Company not found');
     }
-
-    // Check if role already exists
     const roleExists = company.roles.some(role => role.name === name);
     if (roleExists) {
       throw new Error('Role with this name already exists');
     }
-
-    // Add new role
     company.roles.push({ name, description });
     await company.save();
 
