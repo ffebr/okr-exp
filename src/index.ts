@@ -11,6 +11,8 @@ import okrRoutes from './routes/okr';
 import checkInRoutes from './routes/checkIn';
 import userRoutes from './routes/user';
 import corporateOKRRoutes from './routes/corporateOKR';
+import teamStatsRoutes from './routes/teamStats';
+import corporateStatsRoutes from './routes/corporateStats';
 
 dotenv.config();
 
@@ -55,7 +57,6 @@ const swaggerOptions = {
 const swaggerDocs = swaggerJsdoc(swaggerOptions);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
-// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/teams', teamRoutes);
@@ -63,6 +64,8 @@ app.use('/api', okrRoutes);
 app.use('/api/check-ins', checkInRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api', corporateOKRRoutes);
+app.use('/api/teams', teamStatsRoutes);
+app.use('/api/companies', corporateStatsRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

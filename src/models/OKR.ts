@@ -1,6 +1,7 @@
 // OKR.ts  
 import { Schema, model, Types, Document } from 'mongoose';
 import { CorporateOKR, recalculateKRProgress } from './CorporateOKR';
+import { OKRStats } from './OKRStats';
 
 export interface KeyResult {
   title:        string;
@@ -91,17 +92,51 @@ OKRSchema.pre('save', async function(this: IOKR, next) {
     await recalculateKRProgress(this.parentKRIndex, this.parentOKR);
   }
 
+  // 4) Синхронизируем статус заморозки и информацию о родительском OKR с OKRStats
+  if (this.isModified('isFrozen') || this.isModified('parentOKR') || this.isModified('parentKRIndex')) {
+    const okrStats = await OKRStats.findOne({ okr: this._id });
+    if (okrStats) {
+      okrStats.isFrozen = this.isFrozen;
+      okrStats.parentOKR = this.parentOKR;
+      okrStats.parentKRIndex = this.parentKRIndex;
+      await okrStats.save();
+    }
+  }
+
   next();
 });
 
 OKRSchema.pre('findOneAndUpdate', async function(next) {
   const upd = this.getUpdate() as any;
+  const okr = await this.model.findOne(this.getQuery());
+  
+  if (!okr) {
+    return next();
+  }
+
   if (upd?.$set?.keyResults || upd?.$set?.progress) {
-    const okr = await this.model.findOne(this.getQuery());
-    if (okr?.parentOKR != null && okr.parentKRIndex != null) {
+    if (okr.parentOKR != null && okr.parentKRIndex != null) {
       await recalculateKRProgress(okr.parentKRIndex, okr.parentOKR);
     }
   }
+
+  // Синхронизируем статус заморозки и информацию о родительском OKR при обновлении через findOneAndUpdate
+  if (upd?.$set?.isFrozen !== undefined || upd?.$set?.parentOKR !== undefined || upd?.$set?.parentKRIndex !== undefined) {
+    const okrStats = await OKRStats.findOne({ okr: okr._id });
+    if (okrStats) {
+      if (upd.$set.isFrozen !== undefined) {
+        okrStats.isFrozen = upd.$set.isFrozen;
+      }
+      if (upd.$set.parentOKR !== undefined) {
+        okrStats.parentOKR = upd.$set.parentOKR;
+      }
+      if (upd.$set.parentKRIndex !== undefined) {
+        okrStats.parentKRIndex = upd.$set.parentKRIndex;
+      }
+      await okrStats.save();
+    }
+  }
+
   next();
 });
 

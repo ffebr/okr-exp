@@ -19,21 +19,9 @@ interface ITeam {
 }
 
 const teamSchema = new mongoose.Schema<ITeam>({
-  name: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  companyId: {
-    type: String,
-    required: true,
-    ref: 'Company'
-  },
-  createdBy: {
-    type: String,
-    required: true,
-    ref: 'User'
-  },
+  name: { type: String, required: true, trim: true },
+  companyId: { type: String, required: true, ref: 'Company' },
+  createdBy: { type: String, required: true, ref: 'User' },
   members: [{
     userId: {
       type: String,

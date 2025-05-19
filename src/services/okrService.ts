@@ -1,5 +1,6 @@
 import { Types, Document } from 'mongoose';
 import { OKR, IOKR } from '../models/OKR';
+import { OKRStats } from '../models/OKRStats';
 import Team from '../models/Team';
 import { User } from '../models/User';
 
@@ -22,7 +23,9 @@ class OKRService {
     description?: string,
     keyResults?: KeyResultInput[],
     isFrozen?: boolean,
-    deadline?: Date
+    deadline?: Date,
+    parentOKR?: string,
+    parentKRIndex?: number
   ): Promise<OKRDocument> {
     if (!userId) {
       throw new Error('User ID is required');
@@ -71,10 +74,44 @@ class OKRService {
           ((kr.startValue - kr.startValue) / (kr.targetValue - kr.startValue)) * 100 : 
           (kr.startValue / kr.targetValue) * 100
       })) || [],
-      isFrozen: isFrozen || false
+      isFrozen: isFrozen || false,
+      parentOKR: parentOKR ? new Types.ObjectId(parentOKR) : undefined,
+      parentKRIndex
     });
 
     await okr.save();
+
+    // Create OKRStats record
+    const okrStats = new OKRStats({
+      okr: okr._id,
+      team: teamId,
+      progress: okr.progress,
+      keyResultsStats: okr.keyResults.map((kr, index) => ({
+        index,
+        title: kr.title,
+        progress: kr.progress,
+        actualValue: kr.actualValue,
+        targetValue: kr.targetValue,
+        metricType: kr.metricType,
+        unit: kr.unit
+      })),
+      progressHistory: [{
+        date: new Date(),
+        value: okr.progress,
+        keyResultsProgress: okr.keyResults.map((kr, index) => ({
+          index,
+          value: kr.progress
+        }))
+      }],
+      status: 'on_track',
+      isFrozen: okr.isFrozen,
+      deadline: okr.deadline,
+      parentOKR: parentOKR ? new Types.ObjectId(parentOKR) : undefined,
+      parentKRIndex
+    });
+
+    await okrStats.save();
+
     return okr;
   }
 

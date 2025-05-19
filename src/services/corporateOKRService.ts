@@ -24,7 +24,6 @@ interface CorporateOKRDocument extends Document {
   isFrozen: boolean;
   keyResults: CorporateKR[];
   progress: number;
-  status: 'draft' | 'active' | 'done';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -113,22 +112,30 @@ class CorporateOKRService {
     isFrozen: boolean,
     userId: string
   ): Promise<CorporateOKRDocument> {
-    const corporateOKR = await CorporateOKR.findById(new Types.ObjectId(corporateOKRId));
-    if (!corporateOKR) {
-      throw new Error('Corporate OKR not found');
+    console.log('Starting updateOKRFreezeStatus:', { corporateOKRId, isFrozen, userId });
+    
+    try {
+      const corporateOKR = await CorporateOKR.findOneAndUpdate(
+        { _id: new Types.ObjectId(corporateOKRId) },
+        { $set: { isFrozen } },
+        { new: true, runValidators: false }
+      );
+      
+      console.log('Updated corporate OKR:', { 
+        found: !!corporateOKR, 
+        id: corporateOKR?._id,
+        isFrozen: corporateOKR?.isFrozen 
+      });
+      
+      if (!corporateOKR) {
+        throw new Error('Corporate OKR not found');
+      }
+
+      return corporateOKR;
+    } catch (error) {
+      console.error('Error in updateOKRFreezeStatus:', error);
+      throw error;
     }
-
-    // Update freeze status
-    corporateOKR.isFrozen = isFrozen;
-    await corporateOKR.save();
-
-    // Update all linked team OKRs with the same freeze status
-    await OKR.updateMany(
-      { parentOKR: corporateOKRId },
-      { $set: { isFrozen: isFrozen } }
-    );
-
-    return corporateOKR;
   }
 
   static async updateKeyResult(
